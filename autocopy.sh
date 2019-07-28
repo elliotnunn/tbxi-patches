@@ -1,9 +1,19 @@
 #!/bin/bash
 
-REMOTE_DISK_NAME=Alpha
+REMOTE=/Volumes/Alpha
 
-until mount | grep -q "/Volumes/$REMOTE_DISK_NAME"; do sleep 0.15; done
-rm -f "/Volumes/$REMOTE_DISK_NAME/System Folder/Mac OS ROM"
-binhex -o "/Volumes/$REMOTE_DISK_NAME/System Folder/Mac OS ROM" $<
-diskutil unmountDisk force /dev/`diskutil info /Volumes/Alpha/ | grep "Part of Whole" | sed 's/.*:\s*//'`
+echo -n Waiting for "$REMOTE"...
+until mount | grep -q "$REMOTE"; do sleep 0.15; done
+echo ok
+
+for x in "$@"; do
+	td="$(mktemp -d)"
+	binhex -C "$td" "$x" # hack to find out file name!
+	rm -f "$REMOTE/System Folder/$(ls "$td")"
+	rm -rf "$td"
+	binhex -C "$REMOTE/System Folder/" "$x"
+done
+
+diskutil unmountDisk force /dev/`diskutil info "$REMOTE" | grep "Part of Whole" | tr '[[:space:]]' '\n' | tail -n1`
+echo -n -e "\a"
 say copied
