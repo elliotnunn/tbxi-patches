@@ -139,6 +139,151 @@ def patch_nk_mpcpuplugin(orig):
         return orig
 
 
+# iBook G4            000000ff 00000060 00003e80 00017fb5 0202d607 00000000 00011300 46000220
+# Power Mac G4 MDD    000000ff 0000002c 00030d40 0001e705 00003400 00000000 0000260d 46000270
+
+#                                                ^^^^^^^^ public PM features
+#                                                         ^^^^^^^^ private PM features
+#                                                                           ^^^^ batt count
+
+# FROM THE DARWIN SOURCES:
+
+# // PUBLIC power management features
+# // NOTE: this is a direct port from classic, some of these bits
+# //       are obsolete but are included for completeness
+# enum {
+#   kPMHasWakeupTimerMask        = (1<<0),  // 1=wake timer is supported
+#   kPMHasSharedModemPortMask    = (1<<1),  // Not used
+#   kPMHasProcessorCyclingMask   = (1<<2),  // 1=processor cycling supported
+#   kPMMustProcessorCycleMask    = (1<<3),  // Not used
+#   kPMHasReducedSpeedMask       = (1<<4),  // 1=supports reduced processor speed
+#   kPMDynamicSpeedChangeMask    = (1<<5),  // 1=supports changing processor speed on the fly
+#   kPMHasSCSIDiskModeMask       = (1<<6),  // 1=supports using machine as SCSI drive
+#   kPMCanGetBatteryTimeMask     = (1<<7),  // 1=battery time can be calculated
+#   kPMCanWakeupOnRingMask       = (1<<8),  // 1=machine can wake on modem ring
+#   kPMHasDimmingSupportMask     = (1<<9),  // 1=has monitor dimming support
+#   kPMHasStartupTimerMask       = (1<<10), // 1=can program startup timer
+#   kPMHasChargeNotificationMask = (1<<11), // 1=client can determine charger status/get notifications
+#   kPMHasDimSuspendSupportMask  = (1<<12), // 1=can dim diplay to DPMS ('off') state
+#   kPMHasWakeOnNetActivityMask  = (1<<13), // 1=supports waking upon receipt of net packet
+#   kPMHasWakeOnLidMask          = (1<<14), // 1=can wake upon lid/case opening
+#   kPMCanPowerOffPCIBusMask     = (1<<15), // 1=can remove power from PCI bus on sleep
+#   kPMHasDeepSleepMask          = (1<<16), // 1=supports deep (hibernation) sleep
+#   kPMHasSleepMask              = (1<<17), // 1=machine support low power sleep (ala powerbooks)
+#   kPMSupportsServerModeAPIMask = (1<<18), // 1=supports reboot on AC resume for unexpected power loss
+#   kPMHasUPSIntegrationMask     = (1<<19)  // 1=supports incorporating UPS devices into power source calcs
+# };
+
+# // PRIVATE power management features
+# // NOTE: this is a direct port from classic, some of these bits
+# //       are obsolete but are included for completeness.
+# enum {
+#   kPMHasExtdBattInfoMask       = (1<<0),  // Not used
+#   kPMHasBatteryIDMask          = (1<<1),  // Not used
+#   kPMCanSwitchPowerMask        = (1<<2),  // Not used 
+#   kPMHasCelsiusCyclingMask     = (1<<3),  // Not used
+#   kPMHasBatteryPredictionMask  = (1<<4),  // Not used
+#   kPMHasPowerLevelsMask        = (1<<5),  // Not used
+#   kPMHasSleepCPUSpeedMask      = (1<<6),  // Not used
+#   kPMHasBtnIntHandlersMask     = (1<<7),  // 1=supports individual button interrupt handlers
+#   kPMHasSCSITermPowerMask      = (1<<8),  // 1=supports SCSI termination power switch
+#   kPMHasADBButtonHandlersMask  = (1<<9),  // 1=supports button handlers via ADB
+#   kPMHasICTControlMask         = (1<<10), // 1=supports ICT control
+#   kPMHasLegacyDesktopSleepMask = (1<<11), // 1=supports 'doze' style sleep
+#   kPMHasDeepIdleMask           = (1<<12), // 1=supports Idle2 in hardware
+#   kPMOpenLidPreventsSleepMask  = (1<<13), // 1=open case prevent machine from sleeping
+#   kPMClosedLidCausesSleepMask  = (1<<14), // 1=case closed (clamshell closed) causes sleep
+#   kPMHasFanControlMask         = (1<<15), // 1=machine has software-programmable fan/thermostat controls
+#   kPMHasThermalControlMask     = (1<<16), // 1=machine supports thermal monitoring
+#   kPMHasVStepSpeedChangeMask   = (1<<17), // 1=machine supports processor voltage/clock change
+#   kPMEnvironEventsPolledMask   = (1<<18)  // 1=machine doesn't generate pmu env ints, we must poll instead 
+# };
+
+# // DEFAULT public and private features for machines whose device tree
+# // does NOT contain this information (pre-Core99).
+
+# // For Cuda-based Desktops
+
+# #define kStdDesktopPMFeatures   kPMHasWakeupTimerMask         |\
+#                                 kPMHasProcessorCyclingMask    |\
+#                                 kPMHasDimmingSupportMask      |\
+#                                 kPMHasStartupTimerMask        |\
+#                                 kPMSupportsServerModeAPIMask  |\
+#                                 kPMHasUPSIntegrationMask
+
+# #define kStdDesktopPrivPMFeatures  kPMHasExtdBattInfoMask     |\
+#                                    kPMHasICTControlMask       |\
+#                                    kPMHasLegacyDesktopSleepMask
+
+# #define kStdDesktopNumBatteries 0
+
+# // For Wallstreet (PowerBook G3 Series 1998)
+
+# #define kWallstreetPMFeatures   kPMHasWakeupTimerMask         |\
+#                                 kPMHasProcessorCyclingMask    |\
+#                                 kPMHasReducedSpeedMask        |\
+#                                 kPMDynamicSpeedChangeMask     |\
+#                                 kPMHasSCSIDiskModeMask        |\
+#                                 kPMCanGetBatteryTimeMask      |\
+#                                 kPMHasDimmingSupportMask      |\
+#                                 kPMHasChargeNotificationMask  |\
+#                                 kPMHasDimSuspendSupportMask   |\
+#                                 kPMHasSleepMask
+
+# #define kWallstreetPrivPMFeatures  kPMHasExtdBattInfoMask      |\
+#                                    kPMHasBatteryIDMask         |\
+#                                    kPMCanSwitchPowerMask       |\
+#                                    kPMHasADBButtonHandlersMask |\
+#                                    kPMHasSCSITermPowerMask     |\
+#                                    kPMHasICTControlMask        |\
+#                                    kPMClosedLidCausesSleepMask |\
+#                                    kPMEnvironEventsPolledMask
+
+# #define kStdPowerBookPMFeatures      kWallstreetPMFeatures
+# #define kStdPowerBookPrivPMFeatures  kWallstreetPrivPMFeatures
+
+# #define kStdPowerBookNumBatteries 2
+
+# // For 101 (PowerBook G3 Series 1999)
+
+# #define k101PMFeatures          kPMHasWakeupTimerMask         |\
+#                                 kPMHasProcessorCyclingMask    |\
+#                                 kPMHasReducedSpeedMask        |\
+#                                 kPMDynamicSpeedChangeMask     |\
+#                                 kPMHasSCSIDiskModeMask        |\
+#                                 kPMCanGetBatteryTimeMask      |\
+#                                 kPMHasDimmingSupportMask      |\
+#                                 kPMHasChargeNotificationMask  |\
+#                                 kPMHasDimSuspendSupportMask   |\
+#                                 kPMHasSleepMask               |\
+#                                 kPMHasUPSIntegrationMask
+
+# #define k101PrivPMFeatures      kPMHasExtdBattInfoMask        |\
+#                                 kPMHasBatteryIDMask           |\
+#                                 kPMCanSwitchPowerMask         |\
+#                                 kPMHasADBButtonHandlersMask   |\
+#                                 kPMHasSCSITermPowerMask       |\
+#                                 kPMHasICTControlMask          |\
+#                                 kPMClosedLidCausesSleepMask   |\
+#                                 kPMEnvironEventsPolledMask
+
+# #define IOPMNoErr       0   // normal return
+
+#                         // returned by powerStateWillChange and powerStateDidChange:
+# #define IOPMAckImplied      0   // acknowledgement of power state change is implied
+# #define IOPMWillAckLater    1   // acknowledgement of power state change will come later
+
+#                         // returned by requestDomainState
+# #define IOPMBadSpecification    4   // unrecognized specification parameter
+# #define IOPMNoSuchState     5   // no power state matches search specification
+
+# #define IOPMCannotRaisePower    6   // a device cannot change its power for some reason
+
+#                         // returned by changeStateTo
+# #define IOPMParameterError  7   // requested state doesn't exist
+# #define IOPMNotYetInitialized   8   // device not yet fully hooked into power management "graph"
+
+
 FORTH = r'''
 \ Hacks for Mac mini, should not affect other machines
 " /" select-dev " model" active-package get-package-property 0= if
@@ -164,8 +309,8 @@ FORTH = r'''
             000000ff encode-int
             0000002c encode-int encode+
             00030d40 encode-int encode+
-            0001e705 encode-int encode+
-            00001400 encode-int encode+
+            0001e705 encode-int encode+     \ public features
+            00001400 encode-int encode+     \ private features
             00000000 encode-int encode+
             0000260d encode-int encode+
             46000270 encode-int encode+
