@@ -1,6 +1,5 @@
 ; Asm ATALoad.a -o ATALoad.a.o; DumpObj ATALoad.a.o > ATALoad.dmp
 ; The python script does the rest.
-; This is messy and brittle. I got very, very sick of it!
 
     MAIN
     MACHINE MC68030
@@ -12,6 +11,11 @@
     bsr.s   OriginalFunc    ; ... and call the function
     add.l   #$C,sp          ; pop those copied arguments, we don't need them
 
+;    move.l  d0,-(sp)
+;    move.l  d0,a0
+;    bsr     PrintHex
+;    move.l  (sp)+,d0
+
     cmp.l   #$FFFFDB93,d0   ; ATANoDriverErr -> try our method
     beq.s   NewFunc
     cmp.l   #$FFFFDB92,d0   ; ATANoDDMErr -> try our method
@@ -21,247 +25,68 @@
 
 OriginalFunc
     string  asis
-    dc.b    'Nsrt'          ; placeholder for script to insert the clobbered LINK instruction
-    bra     *+2+'ID'        ; placeholder for script to jump to remainder of original function
-
-
-
-var_regs                  equ -$4FA
-
-ataPB                     equ -$4DA ; to
-ataPBQType                equ -$4D6
-ataPBVers                 equ -$4D4
-ataPBReserved2            equ -$4CE
-ataPBFunctionCode         equ -$4C8
-ataPBIOSpeed              equ -$4C7
-ataPBFlags                equ -$4C6
-ataPBDeviceID             equ -$4C2
-ataPBTimeOut              equ -$4BE
-ataPBState                equ -$4B2
-
-; common part of PB ends at offset $30 = -$4AA
-; this part below is a bit tricky...
-
-ataPB34                  equ -$4A6 ; 34
-ataPB38                  equ -$4A2 ; 38
-ataPB3C                  equ -$49E ; 3c
-ataPB40                  equ -$49A ; 40
-
-; -492...-48A = "task file"
-
-ataPBTaskFile_ataTFCount    equ -$491
-ataPBTaskFile_ataTFSDH      equ -$48C
-ataPBTaskFile_ataTFCommand  equ -$48B
-
-; entire PB ends at offset $30 = -$4AA
-
-; max possible PB size ends at $B8 = -$422
-
-var_bstruct_0   equ -$422
-var_bstruct_2   equ -$420
-var_bstruct_4   equ -$41E
-var_bstruct_6   equ -$41C
-
-var_ddmidx      equ -$41A
-var_drvrcnt     equ -$418
-var_arg2        equ -$40E
-var_ddmptr      equ -$40C
-
-var_buf1        equ -$408
-var_buf2        equ -$208
-
-var_flags       equ -8
-var_4           equ -4
-
-arg_dev         equ  8
-arg_ddtype      equ  $C ; a long
-arg_romdrvr     equ  $10
+    dc.b    'Nsrt'          ; LINKER SCRIPT
+    bra     *+2+'ID'        ; LINKER SCRIPT
 
 
 NewFunc
-                link    a6,#-$4DA
-                movem.l d3-d7/a2-a4,-(sp)
+    link    a6,#-4
+    movem.l d5,-4(a6)
+
+    ; 16(a6).L = !AfterSystemStartupTime
+    ; 12(a6).L = $0701, the DDMap ID for a Mac driver
+    ;  8(a6).L = device ID (i.e. devNum<<8 | busNum)
+
+;    move.l  16(a6),a0
+;    bsr     PrintHex
+;    move.l  12(a6),a0
+;    bsr     PrintHex
+;    move.l  8(a6),a0
+;    bsr     PrintHex
+
+    cmp.w   #$0701,12+2(a6)
+    bne.s   @fail
+
+    move.l  #'Size',d0          ; LINKER SCRIPT
+    dc.w    $A51E               ; _NewPtrSys
+    tst.l   A0
+    beq.s   @fail
+
+    move.l  a0,a1
+    lea     *+2+'At',a0         ; LINKER SCRIPT
+    move.l  #'Size',d0          ; LINKER SCRIPT
+    dc.w    $A02E               ; _BlockMove
+
+    move.l  8(a6),d5            ; put device number in this byte
+    and.l   #$0000FF00,d5
+
+    move.l  8(a6),d0            ; put bus number in this byte
+    swap    d0
+    and.l   #$00FF0000,d0
+    or.l    d0,d5
+
+    tst.b   16+3(a6)
+    bne.s   @rom
+    bset.l  #31,d5              ; kAfterSystemStartupTime
+@rom
+
+    jsr     8(a0)               ; ATAMgr v2 entry point
+                                ; never mind the spec, only set d5
+
+;    move.l  d0,a0
+;    bsr     PrintHex
+
+    bra.s   @return
+
+@fail
+    move.l  #$FFFFDB93,d0
+@return
+    movem.l -4(a6),d5
+    unlk    a6
+    rts
 
 
-; Wipe the stack frame to be safe
-                lea     -$4DA(A6),A0
-@lup            clr.w   (A0)+
-                cmp.l   A0,A6
-                bne.s   @lup
-
-; Check that we are asked for an ATA driver
-                cmp.l   #$00000701,arg_ddtype(a6)   ; kDriverTypeMacATA
-                bne     itr_fail
-
-; Load the actual working driver
-                move.w  #$FFFF,$B9E         ; temp ROMMapInsert
-                move.l  #'DRVR',-(SP)
-                move.w  #53,-(SP)           ; .ATADisk
-                dc.w    $A9A0
-                movea.l (SP)+,A2
-                tst.l   A2
-                beq     itr_fail
-                movea.l (A2),A2
-
-; Set pointers to the 512-byte scratch buffer and the param block
-                lea     var_buf1(a6),a3
-                lea     ataPB(a6),a4
-
-; Set bit 31 ("RAM based driver at run time") in the d5 passed to DRVR
-                move.l  #0,var_flags(a6)
-                tst.b   arg_romdrvr+3(a6)
-                bne.s   is_romdrvr
-                ori.b   #$80,var_flags(a6)      ; set the flag
-is_romdrvr:
-
-; Get the "IDENTIFY DEVICE" block with CHS information
-                move.l  #0,    $00(a4)      ;     ataPBLink
-                move.w  #0,    $04(a4)      ;     ataPBQType
-                move.b  #2,    $06(a4)      ; --> ataPBVers
-                move.b  #0,    $13(a4)      ; --> ataPBIOSpeed
-                move.w  arg_dev+2(a6),d1
-                ext.l   d1
-                move.l  d1,    $18(a4)      ; --> ataPBDeviceID
-                move.l  #0,    $08(a4)      ;  ?  ataPBReserved2
-                move.l  #20000,$1C(a4)      ; --> ataPBTimeOut
-                move.b  #$13,  $12(a4)      ; --> ataPBFunctionCode = kATAMgrDriveIdentify
-                move.w  #$2000,$14(a4)      ; --> ataPBFlags = mATAFlagIORead
-                move.w  #0,    $28(a4)      ;  ?  ataPBState
-                move.l  a3,    $38(a4)      ;     ataPBBuffer
-
-                sub.l   #2,sp
-                move.l  a4,-(sp)
-                dc.w    $AAF1               ; ATAManager
-                move.w  (sp)+,d0
-                ext.l   d0
-                bne     itr_return
-
-; Parse the "IDENTIFY DEVICE" block
-                move.w  2(a3),var_bstruct_0(a6) ; typically 1041
-                move.w  6(a3),var_bstruct_2(a6) ; typically 0010
-                move.w  $C(a3),var_bstruct_4(a6) ; typically 003f
-                move.w  var_bstruct_2(a6),d0 ; can't safely get rid of these for some reason!
-                mulu.w  var_bstruct_4(a6),d0
-                move.w  d0,var_bstruct_6(a6)
-
-; Send "Init drive parameters"
-                move.b  #$1,  $12(a4)       ; --> ataPBFunctionCode = IO (not in headers)
-                move.w  #0,   $14(a4)       ; --> ataPBFlags
-                move.w  #0,   $28(a4)       ;  ?  ataPBState
-                move.b  #$91, $48+$7(a4)    ;     ataPBTaskFile.ataTFCommand = kATAcmdInitDrive
-                move.l  arg_dev(a6),d0            ; (leaving bit $40 as zero for CHS)
-                lsr.l   #4,d0
-                and.l   #$10,d0                 ; master/slave bit
-                or.l    #$A0,d0                 ; sector size ? 512
-                move.w  var_bstruct_2(a6),d1
-                sub.w   #1,d1
-                or.w    d1,d0                   ; head number
-                move.b  d0,   $48+$6(a4)    ;     ataPBTaskFile.ataTFSDH
-                move.b  var_bstruct_4+1(a6),$48+$1(a4);     ataPBTaskFile.ataTFCount
-
-                sub.l   #2,sp
-                move.l  a4,-(sp)
-                dc.w    $AAF1               ; ATAManager
-                move.w  (sp)+,d0
-
-; Loop over all partitions, ask the driver to pick a bootable one
-                move.w  #$2000,ataPBFlags(a6)
-                move.l  #$200,ataPB34(a6)
-                move.b  #$20,ataPBTaskFile_ataTFCommand(a6)
-                move.l  #1,d5 ; Initially check only one partition, increase this number later
-                moveq   #0,d6 ; Partition index counter
-tellDriverAboutPartitionLoop:
-
-                move.l  d6,d0
-                addq.l  #1,d6
-                cmp.l   d0,d5
-                bcs.s   itr_fail
-                move.l  a3,ataPB38(a6)
-                move.l  #$200,ataPB3C(a6)
-                move.b  #1,ataPBTaskFile_ataTFCount(a6)
-                pea     var_bstruct_0(a6)
-                move.l  d6,-(sp)
-                pea     ataPB(a6)
-                bsr     paramblk_helper_function
-                subq.l  #2,sp
-                pea     ataPB(a6)
-                dc.w    $AAF1     ;;;;;;;;;;;;;;;;;;;;;;;;; kATAcmdRead again (get next PM entry)
-                move.w  (sp)+,d7
-                lea     $C(sp),sp
-                moveq   #0,d0
-                move.w  (a3),d0
-                cmpi.l  #'PM',d0
-                bne.s   tellDriverAboutPartitionLoop
-                move.l  4(a3),d5 ; update the *real* number of partitions, so we don't end early
-                move.l  var_flags(a6),-(sp) ; var_flags, obviously
-                move.w  var_arg2(a6),d0
-                ext.l   d0
-                move.l  d0,-(sp) ; arg_dev+2 extended to a long, pretty much always zero
-                move.l  a3,-(sp) ; pointer to this partition map entry
-                move.l  a2,-(sp) ; pointer to driver
-                bsr     *+2+'BT' ; BOOT function
-                move.l  d0,d4
-
-                lea     $10(sp),sp
-                move.w  d4,d7 ; -1 means try a different partition, 0 means succes, otherwise error
-                cmpi.w  #$FFFF,d7
-                beq.s   tellDriverAboutPartitionLoop
-
-                tst.w   d7
-                bne.s   itr_fail
-
-                move.l  d4,d0 ; the final pathway for success
-                bra.s   itr_return
-
-itr_fail:
-                move.l  #$FFFFDB93,d0   ; ATANoDriverErr
-
-itr_return:
-                movem.l var_regs(a6),d3-d7/a2-a4
-                unlk    a6
-                rts
-
-
-paramblk_helper_function:
-                link    a6,#0
-                movem.l d6-d7/a3-a4,-(sp)
-                move.l  $C(a6),d7
-                movea.l $10(a6),a3
-                movea.l $8(a6),a4
-                move.l  $18(a4),d0
-                lsr.l   #8,d0
-                moveq   #1,d6
-                and.l   d0,d6
-                clr.w   $28(a4)
-                moveq   #0,d0
-                move.w  6(a3),d0
-                move.l  d7,d1
-                divu.l  d0,d1
-                move.w  d1,$4C(a4)
-                moveq   #0,d0
-                move.w  4(a3),d0
-                move.l  d7,d1
-                divu.l  d0,d1
-                moveq   #0,d0
-                move.w  2(a3),d0
-                tst.l   d0
-                tdivs.l d0,d2:d1
-                moveq   #$F,d0
-                and.l   d2,d0
-                move.b  d0,$4E(a4)
-                move.l  d6,d0
-                lsl.l   #4,d0
-                or.b    d0,$4E(a4)
-                ori.b   #$A0,$4E(a4)
-                moveq   #0,d0
-                move.w  4(a3),d0
-                move.l  d7,d1
-                tdivu.l d0,d2:d1
-                addq.b  #1,d2
-                move.b  d2,$4A(a4)
-                movem.l -$10(a6),d6-d7/a3-a4
-                unlk    a6
-                rts
+    END
 
 
         string c
