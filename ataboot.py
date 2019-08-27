@@ -18,6 +18,11 @@ replace missing driver partitions.
 ''')
 
 
+def align_bytearray(ary, factor):
+    while len(ary) % factor != 0:
+        ary.append(0)
+
+
 def find_InitDevice(code):
     for i in range(0, len(code), 2):
         # checking Driver Descriptor Map magic number (there are two but this one always first)
@@ -31,6 +36,7 @@ def find_InitDevice(code):
 
 def patch_ataload(code):
     code = bytearray(code)
+    align_bytearray(code, 2)
     cut1 = len(code) # boundary between original and glue
 
     # Parse the DumpObj'd file
@@ -40,6 +46,7 @@ def patch_ataload(code):
             if m:
                 code.extend(binascii.unhexlify(m.group(1).replace(' ', '')))
 
+    align_bytearray(code, 2)
     cut2 = len(code) # boundary between glue and driver
 
     with open(path.join(path.dirname(__file__), 'AppleATADisk'), 'rb') as f:
