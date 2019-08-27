@@ -60,7 +60,7 @@ def patch_ataload(code):
             code[i:i+2] = struct.pack('>h', cut2 - i)
 
         if code[i:i+4] == b'Size':
-            code[i:i+4] = struct.pack('>l', cut2 - cut1)
+            code[i:i+4] = struct.pack('>L', len(code) - cut2)
 
         if code[i:i+2] == b'ID': # reference to original InitDevice, skipping the mangled 4-byte LINK
             code[i:i+2] = struct.pack('>h', (InitDevice+4) - i)

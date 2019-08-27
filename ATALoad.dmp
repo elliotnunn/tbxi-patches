@@ -1,5 +1,5 @@
 
-First:      Flags=0 Version=2
+First:      Flags=$00 Version=$0002
 
 Dictionary:          Flags $00 FirstId 1
                    1: #0001
@@ -11,7 +11,7 @@ Pad
 Module:              Flags=$10=(Main Local Code)  Module="#0001"(1) Segment="Main"(2)
 
 Content:             Flags $08
-Contents offset $0000 size $008E
+Contents offset $0000 size $0090
 00000000: 41EF 0010      'A...'            LEA        $0010(A7),A0
 00000004: 2F20           '/ '              MOVE.L     -(A0),-(A7)
 00000006: 2F20           '/ '              MOVE.L     -(A0),-(A7)
@@ -26,35 +26,36 @@ Contents offset $0000 size $008E
 00000022: 4E73           'Ns'              RTE        
 00000024: 7274           'rt'              MOVEQ      #$74,D1             ; 't'
 00000026: 6000 4944      '`.ID'            BRA        *+$4946             ; 0000496C
-0000002A: 4E56 FFFC      'NV..'            LINK       A6,#$FFFC
-0000002E: 48EE 0020 FFFC 'H.. ..'          MOVEM.L    D5,-$0004(A6)
+0000002A: 4E56 FFF8      'NV..'            LINK.W     A6,#-$0008
+0000002E: 48EE 0820 FFF8 'H.. ..'          MOVEM.L    D5/A3,-$0008(A6)
 00000034: 0C6E 0701 000E '.n....'          CMPI.W     #$0701,$000E(A6)
-0000003A: 6642           'fB'              BNE.S      *+$0044             ; 0000007E
+0000003A: 6644           'fD'              BNE.S      *+$0046             ; 00000080
 0000003C: 203C 5369 7A65 ' <Size'          MOVE.L     #$53697A65,D0       ; 'Size'
-00000042: A51E           '..'              _NewPtr    ,Sys                ; A51E
+00000042: A51E           '..'              _NewPtrSys                      ; A51E
 00000044: 4A88           'J.'              TST.L      A0
-00000046: 6736           'g6'              BEQ.S      *+$0038             ; 0000007E
-00000048: 2248           '"H'              MOVEA.L    A0,A1
-0000004A: 41FA 4174      'A.At'            LEA        *+$4176,A0          ; 000041C0
-0000004E: 203C 5369 7A65 ' <Size'          MOVE.L     #$53697A65,D0       ; 'Size'
-00000054: A02E           '..'              _BlockMove                      ; A02E
-00000056: 2A2E 0008      '*...'            MOVE.L     $0008(A6),D5
-0000005A: 0285 0000 FF00 '......'          ANDI.L     #$0000FF00,D5
-00000060: 202E 0008      ' ...'            MOVE.L     $0008(A6),D0
-00000064: 4840           'H@'              SWAP       D0
-00000066: 0280 00FF 0000 '......'          ANDI.L     #$00FF0000,D0
-0000006C: 8A80           '..'              OR.L       D0,D5
-0000006E: 4A2E 0013      'J...'            TST.B      $0013(A6)
-00000072: 6604           'f.'              BNE.S      *+$0006             ; 00000078
-00000074: 08C5 001F      '....'            BSET       #$1F,D5
-00000078: 4EA8 0008      'N...'            JSR        $0008(A0)
-0000007C: 6006           '`.'              BRA.S      *+$0008             ; 00000084
-0000007E: 203C FFFF DB93 ' <....'          MOVE.L     #$FFFFDB93,D0
-00000084: 4CEE 0020 FFFC 'L.. ..'          MOVEM.L    -$0004(A6),D5
-0000008A: 4E5E           'N^'              UNLK       A6
-0000008C: 4E75           'Nu'              RTS        
+00000046: 6738           'g8'              BEQ.S      *+$003A             ; 00000080
+00000048: 2648           '&H'              MOVEA.L    A0,A3
+0000004A: 2248           '"H'              MOVEA.L    A0,A1
+0000004C: 41FA 4174      'A.At'            LEA        *+$4176,A0          ; 000041C2
+00000050: 203C 5369 7A65 ' <Size'          MOVE.L     #$53697A65,D0       ; 'Size'
+00000056: A02E           '..'              _BlockMove                      ; A02E
+00000058: 2A2E 0008      '*...'            MOVE.L     $0008(A6),D5
+0000005C: 0285 0000 FF00 '......'          ANDI.L     #$0000FF00,D5
+00000062: 202E 0008      ' ...'            MOVE.L     $0008(A6),D0
+00000066: 4840           'H@'              SWAP       D0
+00000068: 0280 00FF 0000 '......'          ANDI.L     #$00FF0000,D0
+0000006E: 8A80           '..'              OR.L       D0,D5
+00000070: 4A2E 0013      'J...'            TST.B      $0013(A6)
+00000074: 6604           'f.'              BNE.S      *+$0006             ; 0000007A
+00000076: 08C5 001F      '....'            BSET       #$1F,D5
+0000007A: 4EAB 0008      'N...'            JSR        $0008(A3)
+0000007E: 6006           '`.'              BRA.S      *+$0008             ; 00000086
+00000080: 203C FFFF DB93 ' <....'          MOVE.L     #$FFFFDB93,D0
+00000086: 4CEE 0820 FFF8 'L.. ..'          MOVEM.L    -$0008(A6),D5/A3
+0000008C: 4E5E           'N^'              UNLK       A6
+0000008E: 4E75           'Nu'              RTS        
 
-Size:                Flags $00 ModuleSize 142
+Size:                Flags $00 ModuleSize 144
 
 Last        
 Record Summary 

@@ -30,8 +30,8 @@ OriginalFunc
 
 
 NewFunc
-    link    a6,#-4
-    movem.l d5,-4(a6)
+    link    a6,#-8
+    movem.l a3/d5,-8(a6)
 
     ; 16(a6).L = !AfterSystemStartupTime
     ; 12(a6).L = $0701, the DDMap ID for a Mac driver
@@ -51,6 +51,7 @@ NewFunc
     dc.w    $A51E               ; _NewPtrSys
     tst.l   A0
     beq.s   @fail
+    move.l  a0,a3
 
     move.l  a0,a1
     lea     *+2+'At',a0         ; LINKER SCRIPT
@@ -70,7 +71,7 @@ NewFunc
     bset.l  #31,d5              ; kAfterSystemStartupTime
 @rom
 
-    jsr     8(a0)               ; ATAMgr v2 entry point
+    jsr     8(a3)               ; ATAMgr v2 entry point
                                 ; never mind the spec, only set d5
 
 ;    move.l  d0,a0
@@ -81,7 +82,7 @@ NewFunc
 @fail
     move.l  #$FFFFDB93,d0
 @return
-    movem.l -4(a6),d5
+    movem.l -8(a6),a3/d5
     unlk    a6
     rts
 
