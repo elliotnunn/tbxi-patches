@@ -1,3 +1,4 @@
+import os
 from os import path
 from subprocess import run, DEVNULL
 import argparse
@@ -5,42 +6,65 @@ import shutil
 import sys
 import tempfile
 
+def clobber(p):
+    p = p.rstrip(path.sep)
+    for x in [p, p+'.idump', p+'.rdump']:
+        try:
+            if path.isdir(x): shutil.rmtree(p)
+            os.remove(x)
+        except FileNotFoundError:
+            pass
+
+def donothing():
+    pass
+
+def dump(src, dest):
+    clobber(dest)
+    run(['python3', '-m', 'tbxi', 'dump', '-o', path.abspath(dest), path.abspath(src)], check=True, stdout=DEVNULL)
+
+def build(src, dest):
+    clobber(dest)
+    run(['python3', '-m', 'tbxi', 'build', '-o', path.abspath(dest), path.abspath(src)], check=True, stdout=DEVNULL)
+
+def copy_or_dump(src, dest):
+    clobber(dest)
+    if path.isdir(src):
+        shutil.copytree(src, dest)
+    else:
+        dump(src, dest)
+
 def get_src(desc=None):
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('src', action='store', help='Original (ROM or dumped dir)')
-    parser.add_argument('-o', action='store', help='New')
+    parser.add_argument('src', action='store', help='ROM or dump directory')
+    parser.add_argument('-o', action='store', help='Optional destination path -- "file" or "directory/"'.replace('/', path.sep))
 
     args = parser.parse_args()
+    if args.o is None: args.o = args.src
 
     if not path.exists(args.src):
         print('File not found', file=sys.stderr); sys.exit(1)
 
-    if not path.isdir(args.src) and args.o is None:
-        print('Cannot edit a ROM in place, use -o', file=sys.stderr); sys.exit(1)
+    if path.realpath(args.src) == path.realpath(args.o) and path.isdir(args.src):
+        # Dest and source are the same, just edit in place
 
-    if path.isdir(args.src):
-        def cleanup():
-            pass
+        return args.o, donothing
 
-        if args.o:
-            try:
-                shutil.rmtree(args.o)
-            except FileNotFoundError:
-                pass
-            shutil.copytree(args.src, args.o)
-            src = args.o
-        else:
-            src = args.src
+    elif args.o.endswith(path.sep):
+        # Dest is a folder that we can patch then exit
+
+        copy_or_dump(args.src, args.o)
+        return args.o, donothing
 
     else:
+        # Dest must be built from a patched temp directory
+
+        # Follow up by building and deleting the tempfile
         tmp = tempfile.mkdtemp()
-        src = path.join(tmp, 'editrom')
-
-        run(['python3', '-m', 'tbxi', 'dump', '-o', src, args.src], check=True, stdout=DEVNULL)
-
+        subtmp = path.join(tmp, 'editrom')
         def cleanup():
-            run(['python3', '-m', 'tbxi', 'build', '-o', args.o, src], check=True, stdout=DEVNULL)
+            build(subtmp, args.o)
             shutil.rmtree(tmp)
 
-    return src, cleanup
+        copy_or_dump(args.src, subtmp)
+        return subtmp, cleanup
