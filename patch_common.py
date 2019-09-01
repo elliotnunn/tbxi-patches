@@ -36,8 +36,8 @@ def copy_or_dump(src, dest):
 def get_src(desc=None):
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('src', action='store', help='ROM or dump directory')
-    parser.add_argument('-o', action='store', help='Optional destination path -- "file" or "directory/"'.replace('/', path.sep))
+    parser.add_argument('src', action='store', metavar='SRC', help='ROM or dump directory')
+    parser.add_argument('-o', action='store', metavar='DEST', help='optional destination path -- "file" or "directory/"'.replace('/', path.sep))
 
     args = parser.parse_args()
     if args.o is None: args.o = args.src
