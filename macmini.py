@@ -330,7 +330,7 @@ def patch_booter(text):
 for (parent, folders, files) in os.walk(src):
     folders.sort(); files.sort() # make it kinda deterministic
     for filename in files:
-        full = path.join(src, parent, filename)
+        full = path.join(parent, filename)
 
         if filename.startswith('NanoKernel'):
             code = open(full, 'rb').read()
@@ -344,15 +344,15 @@ for (parent, folders, files) in os.walk(src):
             open(full, 'w').write(text)
 
         elif filename == 'Parcelfile':
-            if not path.exists(path.join(src, parent, 'kauai-ata.pef')):
+            if not path.exists(path.join(parent, 'kauai-ata.pef')):
                 print('ROM lacks Kauai ATA driver (< ROM 9.1), patching it in') # the only known version
-                shutil.copy(path.join(path.dirname(__file__), 'kauai-ata.pef'), path.join(src, parent))
+                shutil.copy(path.join(path.dirname(__file__), 'kauai-ata.pef'), parent)
 
                 with open(full, 'a') as f:
                     f.write('prop flags=0x0000c a=kauai-ata b=ata\n')
                     f.write('\tndrv flags=0x00006 name=driver,AAPL,MacOS,PowerPC src=kauai-ata.pef.lzss\n\n')
 
-            if path.exists(path.join(src, parent, 'MotherBoardHAL.pef')):
+            if path.exists(path.join(parent, 'MotherBoardHAL.pef')):
                 print('ROM has MotherBoardHAL (< ROM 6.7), therefore unlikely to work')
 
         elif filename == 'cicn_-20020':

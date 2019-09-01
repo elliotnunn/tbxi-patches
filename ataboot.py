@@ -80,7 +80,7 @@ found_drvr = False
 for (parent, folders, files) in os.walk(src):
     folders.sort(); files.sort() # make it kinda deterministic
     for filename in files:
-        full = path.join(src, parent, filename)
+        full = path.join(parent, filename)
 
         if filename == 'DRVR_-20175_ATALoad':
             code = open(full, 'rb').read()
