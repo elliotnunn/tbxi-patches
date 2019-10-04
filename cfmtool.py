@@ -4,6 +4,7 @@
 # A command line-interface is available (just call cfmtool.py --help)
 
 
+import builtins
 import argparse
 import datetime
 import struct
@@ -40,7 +41,7 @@ def dump(from_binary_or_path, to_path):
     dateTimeStamp, *versions = struct.unpack_from('>4L', from_binary, 16)
 
     write_txt('date', format_mac_date(dateTimeStamp))
-    write_txt('version', _fmt_dict(zip(('oldDefVersion', 'oldImpVersion', 'currentVersion'), versions)))
+    write_txt('version', repr(dict(zip(('oldDefVersion', 'oldImpVersion', 'currentVersion'), versions))))
 
     section_list = []
     section_count, = struct.unpack_from('>H', from_binary, 32)
@@ -118,6 +119,9 @@ def dump(from_binary_or_path, to_path):
 
         with open(path.join(to_path, sec['filename']), 'wb') as f: f.write(unpacked)
 
+        if sec['sectionKind'] == 'loader':
+            dump_loader_section(path.join(to_path, sec['filename']), to_path)
+
         if packed is not None:
             with open(path.join(to_path, 'packed-' + sec['filename']), 'wb') as f: f.write(packed)
 
@@ -126,7 +130,7 @@ def dump(from_binary_or_path, to_path):
         del sec['containerLength']
         del sec['containerOffset']
 
-    write_txt('sections', _fmt_list(_fmt_dict(d) for d in section_list))
+    write_txt('sections', repr(section_list))
 
 
 def build(from_path, to_path=None):
@@ -231,6 +235,49 @@ def build(from_path, to_path=None):
             f.write(pef)
 
 
+def repr(obj):
+    """Custom repr to prettyprint the dicts that we use
+
+    Useful if you want to write out your own edited dumps (but not essential)
+    """
+
+    if isinstance(obj, list):
+        accum = '[\n'
+        for el in obj:
+            accum += textwrap.indent(repr(el) + ',', '  ') + '\n'
+        accum += ']'
+        return accum
+
+    elif isinstance(obj, dict):
+        if set(obj) in (set(('kind', 'weakFlag', 'name')), set(('section', 'offset', 'to'))):
+            oneline = True
+        else:
+            oneline = False
+
+        try:
+            obj = obj.items()
+        except AttributeError:
+            pass
+
+        accum = []
+        for k, v in obj:
+            if k == 'defaultAddress':
+                v = ('0x%08x' % v)
+            elif k in '_hackUnexpectedAlign _hackPostAlign' or k.lower().endswith('offset'):
+                v = hex(v)
+            else:
+                v = repr(v)
+            accum.append('%r: %s' % (k, v))
+
+        if oneline:
+            return '{' + ', '.join(accum) + '}'
+        else:
+            return '{\n' + textwrap.indent('\n'.join(x + ',' for x in accum), '  ') + '\n}'
+
+    else:
+        return builtins.repr(obj)
+
+
 def unpack_pidata(packed):
     """Unpack pattern-initialized (compressed) data
     """
@@ -292,6 +339,206 @@ def unpack_pidata(packed):
     return bytes(unpacked)
 
 
+def dump_loader_section(from_binary_or_path, to_dir):
+    """For a given loader section, dump: imports.txt, exports.txt (not yet), relocations.txt
+    """
+
+    try:
+        bytes(from_binary_or_path)
+        loader = from_binary_or_path
+    except TypeError:
+        with open(from_binary_or_path, 'rb') as f:
+            loader = f.read()
+
+    sec = dict(zip(('mainSection', 'mainOffset', 'initSection', 'initOffset', 'termSection', 'termOffset'),
+        struct.unpack_from('>lLlLlL', loader)))
+
+    importedLibraryCount, totalImportedSymbolCount, relocSectionCount, relocInstrOffset, loaderStringsOffset, \
+        exportHashOffset, exportHashTablePower, exportedSymbolCount = struct.unpack_from('>8L', loader, 24)
+
+    def get_name(offset):
+        return loader[loaderStringsOffset+offset:].partition(b'\0')[0].decode('mac_roman')
+
+    def get_imported_symbol(idx):
+        ofs = 56 + 24 * importedLibraryCount + 4 * idx
+        wideval, = struct.unpack_from('>L', loader, ofs)
+        return dict(
+            kind = ('code', 'data', 'tvector', 'toc', 'glue')[(wideval >> 24) & 0xF],
+            weakFlag = int(bool(wideval & 0x80000000)),
+            name = get_name(wideval & 0xFFFFFF),
+        )
+
+    def get_imported_library(idx):
+        ofs = 56 + 24 * idx
+        nameOffset, oldImpVersion, currentVersion, importedSymbolCount, \
+            firstImportedSymbol, options = struct.unpack_from('>5LB', loader, ofs)
+
+        return dict(
+            name = get_name(nameOffset),
+            oldImpVersion = oldImpVersion,
+            currentVersion = currentVersion,
+            specialOrderFlag = int(bool(options & 0x80)),
+            weakFlag = int(bool(options & 0x40)),
+            symbols = [get_imported_symbol(n) for n in
+                range(firstImportedSymbol, firstImportedSymbol + importedSymbolCount)],
+        )
+
+    def get_relocations():
+        for idx in range(relocSectionCount):
+            ofs = 56 + 24 * importedLibraryCount + 4 * totalImportedSymbolCount + 12 * idx
+            sectionIndex, _, relocCount, firstRelocOffset, = struct.unpack_from('>HHLL', loader, ofs)
+
+            data = loader[relocInstrOffset+firstRelocOffset:][:2*relocCount]
+            data = [struct.unpack_from('>H', data, i)[0] for i in range(0, len(data), 2)]
+
+            done = []
+
+            relocAddress = 0
+            importIndex = 0
+            sectionC = 0
+            sectionD = 1
+
+            relocations = []
+
+            def nextblock():
+                if not data: return None
+                x = data.pop(0)
+                done.append(x)
+                return x
+
+            for short in iter(nextblock, None):
+                #print('%04X  codeA=%d dataA=%d rSymI=%d rAddr=%08X' % (short, sectionC, sectionD, importIndex, relocAddress), end='  ')
+
+                if short >> 14 == 0b00: # RelocBySectDWithSkip
+                    skipCount = (short >> 6) & 0xFF
+                    relocCount = short & 0x3F
+                    #print('RelocBySectDWithSkip skipCount=%d relocCount=%d' % (skipCount, relocCount))
+
+                    relocAddress += skipCount * 4
+                    for i in range(relocCount):
+                        relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+
+                elif short >> 13 == 0b010: # The Relocate Value Group
+                    subopcode = (short >> 9) & 0xF
+                    runLength = (short & 0x1FF) + 1
+
+                    if subopcode == 0b0000: # RelocBySectC
+                        #print('RelocBySectC runLength=%d' % (runLength))
+                        for i in range(runLength):
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+
+                    elif subopcode == 0b0001: # RelocBySectD
+                        #print('RelocBySectD runLength=%d' % (runLength))
+                        for i in range(runLength):
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
+
+                    elif subopcode == 0b0010: # RelocTVector12
+                        #print('RelocTVector12 runLength=%d' % (runLength))
+                        for i in range(runLength):
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+                            relocAddress += 4
+
+                    elif subopcode == 0b0011: # RelocTVector8
+                        #print('RelocTVector8 runLength=%d' % (runLength))
+                        for i in range(runLength):
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+
+                    elif subopcode == 0b0100: # RelocVTable8
+                        #print('RelocVTable8 runLength=%d' % (runLength))
+                        for i in range(runLength):
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+                            relocAddress += 4
+
+                    elif subopcode == 0b0101: # RelocImportRun
+                        #print('RelocImportRun runLength=%d' % (runLength))
+                        for i in range(runLength):
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('import', importIndex))); relocAddress += 4; importIndex += 1
+
+                elif short >> 13 == 0b011: # The Relocate By Index Group
+                    subopcode = (short >> 9) & 0xF
+                    index = short & 0x1FF
+
+                    if subopcode == 0b0000: # RelocSmByImport
+                        #print('RelocSmByImport index=%d' % (index))
+                        relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('import', index))); relocAddress += 4; importIndex = index + 1
+
+                    elif subopcode == 0b0001: # RelocSmSetSectC
+                        #print('RelocSmSetSectC index=%d' % (index))
+                        sectionC = index
+
+                    elif subopcode == 0b0010: # RelocSmSetSectD
+                        #print('RelocSmSetSectD index=%d' % (index))
+                        sectionD = index
+
+                    elif subopcode == 0b0011: # RelocSmBySection
+                        #print('RelocSmBySection index=%d' % (index))
+                        relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', index))); relocAddress += 4
+
+                elif short >> 12 == 0b1000: # RelocIncrPosition
+                    offset = (short & 0x0FFF) + 1
+                    #print('RelocIncrPosition offset=%d' % (offset))
+
+                    relocAddress += offset
+
+                elif short >> 12 == 0b1001: # RelocSmRepeat
+                    blockCount = ((short >> 8) & 0xF) + 1
+                    repeatCount = (short & 0xFF) + 1
+                    #print('RelocSmRepeat blockCount=%d repeatCount=%d' % (blockCount, repeatCount))
+
+                    data[0:0] = done[:blockCount] * repeatCount
+
+                elif short >> 10 == 0b101000: # RelocSetPosition
+                    offset = ((short & 0x3FF) << 16) + nextblock()
+                    #print('RelocSetPosition offset=%d' % (offset))
+
+                    relocAddress = offset
+
+                elif short >> 10 == 0b101001: # RelocLgByImport
+                    index = ((short & 0x3FF) << 16) + nextblock()
+                    #print('RelocLgByImport index=%d' % (index))
+
+                    relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('import', index))); relocAddress += 4; importIndex = index + 1
+
+                elif short >> 10 == 0b101100: # RelocLgRepeat
+                    blockCount = ((short >> 6) & 0xF) + 1
+                    repeatCount = ((short & 0x3F) << 16) + nextblock()
+                    #print('RelocLgRepeat blockCount=%d repeatCount=%d' % (blockCount, repeatCount))
+
+                    data[0:0] = done[:blockCount] * repeatCount
+
+                elif short >> 10 == 0b101101: # RelocLgSetOrBySection
+                    subopcode = (short >> 6) & 0xF
+                    index = ((short & 0x3F) << 16) + nextblock()
+
+                    if subopcode == 0b0000: # Same as RelocSmBySection
+                        #print('~RelocSmBySection index=%d' % (index))
+                        relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', index))); relocAddress += 4
+
+                    elif subopcode == 0b0001: # Same as RelocSmSetSectC
+                        #print('~RelocSmSetSectC index=%d' % (index))
+                        sectionC = index
+
+                    elif subopcode == 0b0010: # Same as RelocSmSetSectD
+                        #print('~RelocSmSetSectD index=%d' % (index))
+                        sectionD = index
+
+                else:
+                    raise ValueError('bad relocation opcode: 0x%04x' % short)
+
+        return relocations
+
+    to_dir = path.join(to_dir, 'loaderinfo')
+    os.makedirs(to_dir, exist_ok=True)
+
+    with open(path.join(to_dir, 'imports.txt'), 'w') as f:
+        f.write(repr([get_imported_library(n) for n in range(importedLibraryCount)]) + '\n')
+
+    with open(path.join(to_dir, 'relocations.txt'), 'w') as f:
+        f.write(repr(get_relocations()) + '\n')
+
+
 def format_mac_date(srcint):
     """Render a 32-bit MacOS date to ISO 8601 format
     """
@@ -319,33 +566,6 @@ def parse_mac_date(x):
     delta = max(delta, 0)
 
     return delta
-
-
-def _fmt_dict(tuple_iterator):
-    try:
-        tuple_iterator = tuple_iterator.items()
-    except AttributeError:
-        pass
-
-    accum = '{\n'
-    for k, v in tuple_iterator:
-        if k == 'defaultAddress':
-            v = ('0x%08x' % v)
-        elif k in '_hackUnexpectedAlign _hackPostAlign':
-            v = hex(v)
-        else:
-            v = repr(v)
-        accum += textwrap.indent('%r: %s,' % (k, v), '  ') + '\n'
-    accum += '}'
-    return accum
-
-
-def _fmt_list(iterator):
-    accum = '[\n'
-    for el in iterator:
-        accum += textwrap.indent(el + ',', '  ') + '\n'
-    accum += ']'
-    return accum
 
 
 def _sec_kind_is_instantiated(sec_kind):
