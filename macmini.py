@@ -6,6 +6,7 @@ from os import path
 import shutil
 import os
 import struct
+import fnmatch
 
 
 src, cleanup = patch_common.get_src(desc='''
@@ -344,7 +345,7 @@ for (parent, folders, files) in os.walk(src):
             open(full, 'w').write(text)
 
         elif filename == 'Parcelfile':
-            if not path.exists(path.join(parent, 'kauai-ata.pef')):
+            if not any(fnmatch.fnmatch(fn, 'kauai-ata*.pef') for fn in os.listdir(parent)):
                 print('ROM lacks Kauai ATA driver (< ROM 9.1), patching it in') # the only known version
                 shutil.copy(path.join(path.dirname(__file__), 'kauai-ata.pef'), parent)
 
