@@ -251,7 +251,7 @@ def repr(obj):
         return accum
 
     elif isinstance(obj, dict):
-        if set(obj) in (set(('kind', 'weakFlag', 'name')), set(('section', 'offset', 'to'))):
+        if set(obj) in (set(('kind', 'weakFlag', 'name')), set(('section', 'offset', 'to')), set(('file', 'offset', 'function'))):
             oneline = True
         else:
             oneline = False
@@ -549,36 +549,41 @@ def dump_locations(from_path, to_path):
     """Create some useful files: glue.txt
     """
 
-    with open(path.join(from_path, 'code'), 'rb') as f: code = f.read()
-
-    gluescan = []
-    for i in range(0, len(code) - 24, 4):
-        for a, b in zip(code[i:], b'\x81\x82\xff\xff\x90\x41\x00\x14\x80\x0c\x00\x00\x80\x4c\x00\x04\x7c\x09\x03\xa6\x4e\x80\x04\x20'):
-            if a != b and b != 0xFF: break
-        else:
-            toc_ofs, = struct.unpack_from('>h', code, i+2)
-            gluescan.append((i, toc_ofs))
-
-    with open(path.join(from_path, 'loaderinfo', 'relocations.txt')) as f: relocs = eval(f.read())
-    with open(path.join(from_path, 'loaderinfo', 'imports.txt')) as f: imports = eval(f.read())
-
-    imports = [sym['name'] for lib in imports for sym in lib['symbols']]
-
-    toc_vectors = {}
-    for rel in relocs:
-        if rel['section'] == 1 and rel['to'][0] == 'import':
-            toc_vectors[rel['offset']] = imports[rel['to'][1]]
+    with open(path.join(from_path, 'sections.txt')) as f: section_list = eval(f.read())
 
     gluelocs = []
-    for code_ofs, toc_ofs in gluescan:
-        try:
-            gluelocs.append((code_ofs, toc_vectors[toc_ofs]))
-        except KeyError:
-            pass
 
-    gluelocs.sort()
+    for idx, sec in enumerate(section_list):
+        if sec['sectionKind'] != 'code': continue
 
-    # Okay, let's do a nasty cross-referencing job!
+        with open(path.join(from_path, sec['filename']), 'rb') as f: code = f.read()
+
+        gluescan = []
+        for i in range(0, len(code) - 24, 4):
+            for a, b in zip(code[i:], b'\x81\x82\xff\xff\x90\x41\x00\x14\x80\x0c\x00\x00\x80\x4c\x00\x04\x7c\x09\x03\xa6\x4e\x80\x04\x20'):
+                if a != b and b != 0xFF: break
+            else:
+                toc_ofs, = struct.unpack_from('>h', code, i+2)
+                gluescan.append((i, toc_ofs))
+
+        with open(path.join(from_path, 'loaderinfo', 'relocations.txt')) as f: relocs = eval(f.read())
+        with open(path.join(from_path, 'loaderinfo', 'imports.txt')) as f: imports = eval(f.read())
+
+        imports = [sym['name'] for lib in imports for sym in lib['symbols']]
+
+        toc_vectors = {}
+        for rel in relocs:
+            if 'data' in section_list[rel['section']]['sectionKind'] and rel['to'][0] == 'import':
+                toc_vectors[rel['offset']] = imports[rel['to'][1]]
+
+        gluelocs = []
+        for code_ofs, toc_ofs in gluescan:
+            try:
+                gluelocs.append(dict(file=sec['filename'], offset=code_ofs, function=toc_vectors[toc_ofs]))
+            except KeyError:
+                pass
+
+    gluelocs.sort(key=lambda dct: tuple(dct.values()))
 
     to_path = path.join(to_path, 'locations')
     os.makedirs(to_path, exist_ok=True)
