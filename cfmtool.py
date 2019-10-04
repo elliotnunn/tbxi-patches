@@ -132,6 +132,8 @@ def dump(from_binary_or_path, to_path):
 
     write_txt('sections', repr(section_list))
 
+    dump_locations(to_path, to_path)
+
 
 def build(from_path, to_path=None):
     """Rebuild a directory into a CFM/PEF binary
@@ -273,6 +275,10 @@ def repr(obj):
             return '{' + ', '.join(accum) + '}'
         else:
             return '{\n' + textwrap.indent('\n'.join(x + ',' for x in accum), '  ') + '\n}'
+
+    elif isinstance(obj, tuple):
+        obj = [hex(el) if (i == 0 and isinstance(el, int)) else repr(el) for (i, el) in enumerate(obj)]
+        return '(' + ', '.join(obj) + ')'
 
     else:
         return builtins.repr(obj)
@@ -537,6 +543,47 @@ def dump_loader_section(from_binary_or_path, to_dir):
 
     with open(path.join(to_dir, 'relocations.txt'), 'w') as f:
         f.write(repr(get_relocations()) + '\n')
+
+
+def dump_locations(from_path, to_path):
+    """Create some useful files: glue.txt
+    """
+
+    with open(path.join(from_path, 'code'), 'rb') as f: code = f.read()
+
+    gluescan = []
+    for i in range(0, len(code) - 24, 4):
+        for a, b in zip(code[i:], b'\x81\x82\xff\xff\x90\x41\x00\x14\x80\x0c\x00\x00\x80\x4c\x00\x04\x7c\x09\x03\xa6\x4e\x80\x04\x20'):
+            if a != b and b != 0xFF: break
+        else:
+            toc_ofs, = struct.unpack_from('>h', code, i+2)
+            gluescan.append((i, toc_ofs))
+
+    with open(path.join(from_path, 'loaderinfo', 'relocations.txt')) as f: relocs = eval(f.read())
+    with open(path.join(from_path, 'loaderinfo', 'imports.txt')) as f: imports = eval(f.read())
+
+    imports = [sym['name'] for lib in imports for sym in lib['symbols']]
+
+    toc_vectors = {}
+    for rel in relocs:
+        if rel['section'] == 1 and rel['to'][0] == 'import':
+            toc_vectors[rel['offset']] = imports[rel['to'][1]]
+
+    gluelocs = []
+    for code_ofs, toc_ofs in gluescan:
+        try:
+            gluelocs.append((code_ofs, toc_vectors[toc_ofs]))
+        except KeyError:
+            pass
+
+    gluelocs.sort()
+
+    # Okay, let's do a nasty cross-referencing job!
+
+    to_path = path.join(to_path, 'locations')
+    os.makedirs(to_path, exist_ok=True)
+    with open(path.join(to_path, 'glue.txt'), 'w') as f:
+        f.write(repr(gluelocs) + '\n')
 
 
 def format_mac_date(srcint):
