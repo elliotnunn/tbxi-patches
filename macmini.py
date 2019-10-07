@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 
 import patch_common
+import cfmtool
+from ppcasm import assemble
 
 from os import path
 import shutil
 import os
 import struct
 import fnmatch
+import tempfile
+from ast import literal_eval as eval
 
 
 src, cleanup = patch_common.get_src(desc='''
@@ -16,6 +20,8 @@ First, patches the boot script to (a) add PowerMac10,1/2 to the COMPATIBLE tag,
 PMU device. Second, patches the NanoKernel to prevent the CPU Plugin from
 hanging when a THRM register access silently fails. Third, if necessary, patches
 the Kauai ATA driver into old ROMs (pre-9.1).
+Fourth, patches and inserts a native driver parcel for the ATI Radeon 9200
+(ATY,RockHopper2), to enable acceleration with the c.2005 ATI Extensions.
 ''')
 
 
@@ -328,6 +334,74 @@ def patch_booter(text):
     return text
 
 
+def patch_rockhopper_ndrv(src, dest=None):
+    with tempfile.TemporaryDirectory() as tmp:
+        cfmtool.dump(src, tmp)
+
+        glue_file = eval(open(path.join(tmp, 'locations', 'glue.txt')).read())
+        glue_info = next(d for d in glue_file if d['function'] == 'ExpMgrConfigReadLong')
+
+        code_path = path.join(tmp, glue_info['file'])
+        code = bytearray(open(code_path, 'rb').read())
+        while len(code) % 4: code.append(0) # align just in case
+
+        # All calls to ExpMgrConfigReadLong go through this "cross-TOC glue" function...
+        glue_offset = glue_info['offset']
+        glue_toc, = struct.unpack_from('>h', code, glue_offset + 2)
+
+        print('ATY,RockHopper2 patch: catching %s to change device 0x5962 to 0x5961' % glue_info['function'])
+
+        # ...So replace it with a branch to the end of the code
+        code[glue_offset:glue_offset+4] = assemble('b %d' % (len(code) - glue_offset))
+        for i in range(glue_offset+4, glue_offset+24, 4): code[i:i+4] = assemble('nop')
+
+        code.extend(assemble(f"""
+                mflr    r0                  # Standard stack setup
+                stw     r0, 8(r1)
+                stwu    r1, -0x40(r1)
+
+                stw     r4, 0x38(r1)        # Make the call,
+                stw     r5, 0x3c(r1)        # but save the args first
+                bl      ExpMgrConfigReadLong
+
+                cmpwi   cr0, r3, 0          # If call failed, punt
+                bne     cr0, _return
+
+                lwz     r4, 0x38(r1)        # If wrong address, punt
+                cmpwi   cr0, r4, 0
+                bne     cr0, _return
+
+                lwz     r5, 0x3c(r1)        # If wrong returned value, punt
+                lwz     r8, 0(r5)
+                lis     r7, 0x1002
+                ori     r7, r7, 0x5962
+                cmpw    cr0, r7, r8
+                bne     cr0, _return
+
+                lis     r8, 0x1002          # Save the new returned value
+                ori     r8, r8, 0x5961
+                stw     r8, 0(r5)
+
+            _return:                         # Stack teardown
+                lwz     r1, 0(r1)
+                lwz     r0, 8(r1)
+                mtlr    r0
+                blr
+
+            # r3=opaqueNRptr, r4=config_addr, r5=result_ptr
+            ExpMgrConfigReadLong:
+                lwz     r12, {glue_toc}(r2)
+                stw     r2, 0x14(r1)
+                lwz     r0, 0(r12)
+                lwz     r2, 4(r12)
+                mtctr   r0
+                bctr
+        """))
+
+        open(code_path, 'wb').write(code)
+        return cfmtool.build(tmp, dest)
+
+
 for (parent, folders, files) in os.walk(src):
     folders.sort(); files.sort() # make it kinda deterministic
     for filename in files:
@@ -352,6 +426,20 @@ for (parent, folders, files) in os.walk(src):
                 with open(full, 'a') as f:
                     f.write('prop flags=0x0000c a=kauai-ata b=ata\n')
                     f.write('\tndrv flags=0x00006 name=driver,AAPL,MacOS,PowerPC src=kauai-ata.pef.lzss\n\n')
+
+            if not any(fnmatch.fnmatch(fn, 'ATY,RockHopper2*.pef') for fn in os.listdir(parent)):
+                print('ROM lacks ATY,RockHopper2 driver, patching it in')
+
+                ndrv1 = path.join(path.dirname(__file__), 'ATY,RockHopper2-1.0.1f63-20040916.133447.pef')
+                ndrv2 = path.join(parent, path.basename(ndrv1))
+                shutil.copy(ndrv1, ndrv2)
+
+                patch_rockhopper_ndrv(ndrv2, ndrv2)
+
+                # compatible w/ ATY,RockHopper2 and device_type=display, override existing
+                with open(full, 'a') as f:
+                    f.write('prop flags=0x0000c a=ATY,RockHopper2 b=display\n')
+                    f.write('\tndrv flags=0x00004 name=driver,AAPL,MacOS,PowerPC src=%s\n\n' % path.basename(ndrv2))
 
             if path.exists(path.join(parent, 'MotherBoardHAL.pef')):
                 print('ROM has MotherBoardHAL (< ROM 6.7), therefore unlikely to work')
