@@ -26,7 +26,7 @@ def assemble(asm):
 
         elif line.endswith(':'): # check labels
             if not re.match(r'^\w+:$', line):
-                raise SyntaxError('invalid label %r' % line[:-1])
+                raise SyntaxError('invalid label\n  %d: %s' % (lineno + 1, clean_asm[lineno].lstrip()))
 
         else: # compile instructions!
             cur_labels = {lab: lab_offset - offset for (lab, lab_offset) in labels.items()}
