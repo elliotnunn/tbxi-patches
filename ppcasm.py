@@ -339,13 +339,13 @@ def inst_mfcr(rD):
     return _b(31,0,5)|_b(rD,6,10)|_b(19,21,30)
 
 def inst_mfspr(rD, spr):
-    return _b(31,0,5)|_b(rD,6,10)|_b(spr,11,20)|_b(339,21,30)
+    return _b(31,0,5)|_b(rD,6,10)|_b(spr&0x1f,11,15)|_b(spr>>5,16,20)|_b(339,21,30)
 
 def inst_mtcrf(crm, rS):
     return _b(31,0,5)|_b(rS,6,10)|_b(crm,12,19)|_b(144,21,30)
 
 def inst_mtspr(rS, spr):
-    return _b(31,0,5)|_b(rS,6,10)|_b(spr,11,20)|_b(467,21,30)
+    return _b(31,0,5)|_b(rS,6,10)|_b(spr&0x1f,11,15)|_b(spr>>5,16,20)|_b(467,21,30)
 
 def inst_mulhw(dot, rD, rA, rB):
     return _b(31,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(75,22,30)|_b(dot,31)
