@@ -358,6 +358,7 @@ def patch_rockhopper_ndrv(src, dest=None):
         code.extend(assemble(f"""
                 mflr    r0                  # Standard stack setup
                 stw     r0, 8(r1)
+                stw     r2, 0x14(r1)        # Essential, caller uses this
                 stwu    r1, -0x40(r1)
 
                 stw     r4, 0x38(r1)        # Make the call,
@@ -373,13 +374,13 @@ def patch_rockhopper_ndrv(src, dest=None):
 
                 lwz     r5, 0x3c(r1)        # If wrong returned value, punt
                 lwz     r8, 0(r5)
-                lis     r7, 0x1002
-                ori     r7, r7, 0x5962
+                lis     r7, 0x5962
+                ori     r7, r7, 0x1002
                 cmpw    cr0, r7, r8
                 bne     cr0, _return
 
-                lis     r8, 0x1002          # Save the new returned value
-                ori     r8, r8, 0x5961
+                lis     r8, 0x5961          # Save the new returned value
+                ori     r8, r8, 0x1002
                 stw     r8, 0(r5)
 
             _return:                         # Stack teardown
@@ -437,9 +438,14 @@ for (parent, folders, files) in os.walk(src):
                 patch_rockhopper_ndrv(ndrv2, ndrv2)
 
                 # compatible w/ ATY,RockHopper2 and device_type=display, override existing
-                with open(full, 'a') as f:
-                    f.write('prop flags=0x0000c a=ATY,RockHopper2 b=display\n')
-                    f.write('\tndrv flags=0x00004 name=driver,AAPL,MacOS,PowerPC src=%s\n\n' % path.basename(ndrv2))
+                # must come before the cofb parcel
+                with open(full, 'r+') as f:
+                    lines = f.readlines()
+                    idx = next(i for (i, ln) in enumerate(lines) if ' b=display' in ln)
+                    lines[idx:idx] = ['prop flags=0x0000c a=ATY,RockHopper2 b=display\n',
+                        '\tndrv flags=0x00004 name=driver,AAPL,MacOS,PowerPC src=%s\n\n' % path.basename(ndrv2)]
+                    f.seek(0)
+                    f.writelines(lines)
 
             if path.exists(path.join(parent, 'MotherBoardHAL.pef')):
                 print('ROM has MotherBoardHAL (< ROM 6.7), therefore unlikely to work')
