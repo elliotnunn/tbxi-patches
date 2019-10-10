@@ -334,6 +334,20 @@ def patch_booter(text):
     return text
 
 
+# The Mini's Radeon 9200 is an ATY,RockHopper2 with PCI device ID 5962, which is
+# unknown to ATI's OS 9 driver package. First, we need an ndrv, which would
+# usually be shipped in the card ROM and sometimes replaced by the "ATI ROM
+# Xtender". Mac OS X shipped with 200+ of these, and darthnVader found that the
+# RockHopper2 ndrv from 10.3.6 works great, while 10.3.8+ has a graypage problem.
+# We use the "parcel" mechanism to insert this into the device tree. To enable
+# acceleration, the on-disk ATI extensions require Status 128 (ATIGetInfo) calls
+# to the ndrv to return a known device ID (offset 0x4e in the struct). ID 5961
+# (also Radeon 9200) seems to keep everything happy. The code below patches reads
+# from PCI config space to this end. (The extensions passed around in
+# "9200os9.sit", supposedly for the DVI-I Radeon 9200, do not work. The accl 4
+# "GraphicsAccelerationR6" resource of ATI Graphics Accelerator has apparently
+# been bin-patched to replace 5961 with 5960.)
+
 def patch_rockhopper_ndrv(src, dest=None):
     with tempfile.TemporaryDirectory() as tmp:
         cfmtool.dump(src, tmp)
@@ -429,7 +443,8 @@ for (parent, folders, files) in os.walk(src):
                     f.write('\tndrv flags=0x00006 name=driver,AAPL,MacOS,PowerPC src=kauai-ata.pef.lzss\n\n')
 
             if not any(fnmatch.fnmatch(fn, 'ATY,RockHopper2*.pef') for fn in os.listdir(parent)):
-                print('ROM lacks ATY,RockHopper2 driver, patching it in')
+                print('Adding ATY,RockHopper2 ndrv parcel (v1.0.1f63, OS X 10.3.6). Credit to darthnVader:')
+                print('http://macos9lives.com/smforum/index.php/topic,2408.msg29393.html#msg29393')
 
                 ndrv1 = path.join(path.dirname(__file__), 'ATY,RockHopper2-1.0.1f63-20040916.133447.pef')
                 ndrv2 = path.join(parent, path.basename(ndrv1))
