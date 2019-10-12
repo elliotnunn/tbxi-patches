@@ -32,6 +32,19 @@ import struct
 import inspect
 
 
+class AsmError(Exception):
+    def __init__(self, msg, lineno=None, line=None):
+        self.msg = msg
+        self.lineno = lineno
+        self.line = line
+
+    def __str__(self):
+        if self.lineno is None:
+            return self.msg
+        else:
+            return '%s\n %d: %s' % (self.msg, self.lineno, self.line.strip())
+
+
 def assemble(asm, return_labels=False):
     """Assemble a string into a bytes object
     """
@@ -61,7 +74,7 @@ def assemble(asm, return_labels=False):
     for lineno, offset, orig_line, line_labels, line in line_list:
         for label in line_labels:
             if label in all_labels:
-                raise SyntaxError('redefined label %s\n  %d: %s' % (label, lineno, orig_line))
+                raise AsmError('redefined label', lineno, orig_line)
             all_labels[label] = offset
 
     # Third pass: assemble
@@ -73,9 +86,9 @@ def assemble(asm, return_labels=False):
 
             try:
                 binary.extend(struct.pack('>L', instruction(line, cur_labels)))
-            except SyntaxError as e:
-                e.msg += '\n  %d: %s' % (lineno, orig_line.lstrip())
-                raise e
+            except AsmError as e:
+                e.lineno, e.line = lineno, orig_line
+                raise
 
     binary = bytes(binary)
 
@@ -99,7 +112,7 @@ def instruction(line, variables):
     # Get the function that will handle this instruction (special case for branches)
     funcname = 'inst_' + (op.rstrip('l') if op.startswith('b') else op)
     func = globals().get(funcname, None)
-    if not func: raise SyntaxError('unknown instruction')
+    if not func: raise AsmError('unknown instruction')
 
     # Special case: branch & link instructions take extra l as the first argument
     if op.startswith('b'):
@@ -112,7 +125,7 @@ def instruction(line, variables):
     if func_pattern[:1] == ['dot']:
         args.insert(0, str(dot))
     elif dot:
-        raise SyntaxError('dot not allowed')
+        raise AsmError('dot not allowed')
 
     # Expand bracketed arguments (load/store instructions) to two args
     for i in range(len(func_pattern)):
@@ -133,7 +146,7 @@ def instruction(line, variables):
                 func_pattern[i] = 'anything' # do not attempt to validate
 
     # Did the user give us the right number of commas?
-    if len(args) != len(func_pattern): raise SyntaxError('wrong number of args')
+    if len(args) != len(func_pattern): raise AsmError('wrong number of args')
 
     def eval_register_arg(x):
         if x == 'sp': return 1
@@ -144,7 +157,7 @@ def instruction(line, variables):
         def label_replacer(label):
             label = label.group(0)
             if label not in variables:
-                raise SyntaxError('undefined label: %s' % label)
+                raise AsmError('undefined label: %s' % label)
             return hex(variables[label])
 
         replaced = re.sub(r'\b[^\W\d]\w*', label_replacer, x)
@@ -172,12 +185,14 @@ def instruction(line, variables):
     final_args = []
     for arg, (regex, eval_func) in zip(args, validation_list):
         m = re.match(regex, arg)
-        if not m: raise SyntaxError('bad argument')
+        if not m: raise AsmError('bad argument')
 
         try:
             final_args.append(eval_func(arg))
+        except AsmError:
+            raise
         except:
-            raise SyntaxError('bad argument')
+            raise AsmError('very bad argument')
 
     return func(*final_args)
 
@@ -206,7 +221,10 @@ def command_line():
         with open(args.src) as f:
             asm = f.read()
 
-    binary = assemble(asm)
+    try:
+        binary = assemble(asm)
+    except AsmError as e:
+        sys.exit(str(e))
 
     if args.dest is None:
         sys.stdout.buffer.write(binary)
@@ -232,19 +250,19 @@ def inst_andc(dot, rA, rS, rB):
     return _b(31,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(60,21,30)|_b(dot,31)
 
 def inst_andi(dot, rA, rS, uimm):
-    if not dot: raise SyntaxError('dot required')
+    if not dot: raise AsmError('dot required')
     return _b(28,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(uimm,16,31)
 
 def inst_andis(dot, rA, rS, uimm):
-    if not dot: raise SyntaxError('dot required')
+    if not dot: raise AsmError('dot required')
     return _b(29,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(uimm,16,31)
 
 def inst_b(link, bd):
-    if bd & 3: raise SyntaxError('branch target not 4-aligned')
+    if bd & 3: raise AsmError('branch target not 4-aligned')
     return _b(18,0,5)|_b(bd>>2,6,29)|_b(link,31)
 
 def inst_bc(link, bo, bi, bd):
-    if bd & 3: raise SyntaxError('branch target not 4-aligned')
+    if bd & 3: raise AsmError('branch target not 4-aligned')
     return _b(16,0,5)|_b(bo,6,10)|_b(bi,11,15)|_b(bd>>2,16,29)|_b(link,31)
 
 def inst_bcctr(link, bo, bi):
@@ -302,13 +320,13 @@ def inst_lbz(rD, d_bracket, rA0):
     return _b(34,0,5)|_b(rD,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_lbzu(rD, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(35,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_lbzux(rD, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(31,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(119,21,30)
 
 def inst_lbzx(rD, rA0, rB):
@@ -318,13 +336,13 @@ def inst_lha(rD, d_bracket, rA0):
     return _b(42,0,5)|_b(rD,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_lhau(rD, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(43,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_lhaux(rD, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(31,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(375,21,30)
 
 def inst_lhax(rD, rA0, rB):
@@ -334,13 +352,13 @@ def inst_lha(rD, d_bracket, rA0):
     return _b(40,0,5)|_b(rD,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_lhzu(rD, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(41,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_lhzux(rD, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(31,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(311,21,30)
 
 def inst_lhzx(rD, rA0, rB):
@@ -353,13 +371,13 @@ def inst_lwz(rD, d_bracket, rA0):
     return _b(32,0,5)|_b(rD,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_lwzu(rD, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(33,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_lwzux(rD, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
-    if rA == rD: raise SyntaxError('rA = rD')
+    if rA == 0: raise AsmError('rA = 0')
+    if rA == rD: raise AsmError('rA = rD')
     return _b(31,0,5)|_b(rD,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(55,21,30)
 
 def inst_lwzx(rD, rA0, rB):
@@ -435,11 +453,11 @@ def inst_stb(rS, d_bracket, rA0):
     return _b(38,0,5)|_b(rS,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_stbu(rS, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
+    if rA == 0: raise AsmError('rA = 0')
     return _b(29,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_stbux(rS, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
+    if rA == 0: raise AsmError('rA = 0')
     return _b(31,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(247,21,30)
 
 def inst_stbx(rS, rA0, rB):
@@ -449,11 +467,11 @@ def inst_sth(rS, d_bracket, rA0):
     return _b(44,0,5)|_b(rS,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_sthu(rS, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
+    if rA == 0: raise AsmError('rA = 0')
     return _b(45,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_sthux(rS, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
+    if rA == 0: raise AsmError('rA = 0')
     return _b(31,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(439,21,30)
 
 def inst_sthx(rS, rA0, rB):
@@ -466,11 +484,11 @@ def inst_stw(rS, d_bracket, rA0):
     return _b(36,0,5)|_b(rS,6,10)|_b(rA0,11,15)|_b(d_bracket,16,31)
 
 def inst_stwu(rS, d_bracket, rA):
-    if rA == 0: raise SyntaxError('rA = 0')
+    if rA == 0: raise AsmError('rA = 0')
     return _b(37,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(d_bracket,16,31)
 
 def inst_stwux(rS, rA, rB):
-    if rA == 0: raise SyntaxError('rA = 0')
+    if rA == 0: raise AsmError('rA = 0')
     return _b(31,0,5)|_b(rS,6,10)|_b(rA,11,15)|_b(rB,16,20)|_b(183,21,30)
 
 def inst_stwx(rS, rA0, rB):
