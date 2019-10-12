@@ -138,7 +138,7 @@ def instruction(line, variables):
             regex = r'^cr([0-7])$'
             eval_func = eval_register_arg
         else:
-            regex = r'^([^\.]+)$'
+            regex = r'^[\w' + re.escape('()+-*/%|&~^') + r']+$'
             eval_func = eval_expression
 
         validation_list.append((regex, eval_func))
