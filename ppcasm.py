@@ -32,47 +32,56 @@ import struct
 import inspect
 
 
-def assemble(asm):
+def assemble(asm, return_labels=False):
     """Assemble a string into a bytes object
     """
 
-    labels = resolve_labels(asm)
+    asm = asm.rstrip('\n').split('\n')
 
-    clean_asm = _strip(asm)
+    # First pass: discern labels from instructions
+    line_list = []
+    offset = 0
+    for lineno, orig_line in enumerate(asm, 1):
+        line = orig_line # mutate line a bit
+        line = line.lower() # normalize case
+        line = line.partition('#')[0] # strip comments
+
+        line_labels, line = re.match(r'^((?:\s*\w+:)*)(.*)', line).groups()
+
+        line_labels = re.findall(r'\w+', line_labels)
+        line = line.strip()
+
+        line_list.append((lineno, offset, orig_line, line_labels, line))
+
+        if line: offset += 4
+
+    # Second pass: resolve labels (each instruction is 4 bytes, easy)
+    all_labels = {}
+    for lineno, offset, orig_line, line_labels, line in line_list:
+        for label in line_labels:
+            if label in all_labels:
+                raise SyntaxError('redefined label %s\n  %d: %s' % (label, lineno, orig_line))
+            all_labels[label] = offset
+
+    # Third pass: assemble
     binary = bytearray()
     offset = 0
-    for lineno, line in enumerate(clean_asm):
-        if line == '':
-            pass # skip blanks
+    for lineno, offset, orig_line, line_labels, line in line_list:
+        if line:
+            cur_labels = {lab: lab_offset - offset for (lab, lab_offset) in all_labels.items()}
 
-        elif line.endswith(':'): # check labels
-            if not re.match(r'^\w+:$', line):
-                raise SyntaxError('invalid label\n  %d: %s' % (lineno + 1, clean_asm[lineno].lstrip()))
-
-        else: # compile instructions!
-            cur_labels = {lab: lab_offset - offset for (lab, lab_offset) in labels.items()}
             try:
                 binary.extend(struct.pack('>L', instruction(line, cur_labels)))
             except SyntaxError as e:
-                e.msg += '\n  %d: %s' % (lineno + 1, clean_asm[lineno].lstrip())
+                e.msg += '\n  %d: %s' % (lineno, orig_line.lstrip())
                 raise e
-            offset += 4
 
-    return bytes(binary)
+    binary = bytes(binary)
 
-
-def resolve_labels(asm):
-    asm = _strip(asm)
-
-    labels = {}
-    offset = 0
-    for l in asm:
-        if l.endswith(':'): # label
-            labels[l[:-1]] = offset
-        elif l: # instruction
-            offset += 4
-
-    return labels
+    if return_labels:
+        return binary, all_labels
+    else:
+        return binary
 
 
 def instruction(line, variables):
@@ -131,7 +140,14 @@ def instruction(line, variables):
         return int(x.lstrip('cr'))
 
     def eval_expression(x):
-        return eval(x, {"__builtins__": variables}, {})
+        def label_replacer(label):
+            label = label.group(0)
+            if label not in variables:
+                raise SyntaxError('undefined label: %s' % label)
+            return hex(variables[label])
+
+        replaced = re.sub(r'\b[^\W\d]\w*', label_replacer, x)
+        return eval(replaced, {"__builtins__": {}}, {})
 
     # Create a validation regex and an evaluation function for each arg
     validation_list = []
@@ -171,19 +187,6 @@ def _b(value, startbit, endbit=None):
     mask = (1 << numbits) - 1
     shift = 31 - endbit
     return (value & mask) << shift
-
-
-def _strip(asm):
-    # returns a list of lines, all being instruction, label: or empty
-
-    asm = asm.rstrip('\n').split('\n')
-
-    # Strip comments and whitespace, normalize case
-    asm = [l.partition('#')[0] for l in asm]
-    asm = [' '.join(l.strip().split()) for l in asm]
-    asm = [l.lower() for l in asm]
-
-    return asm
 
 
 def command_line():
