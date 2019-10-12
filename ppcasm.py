@@ -46,14 +46,15 @@ def assemble(asm, return_labels=False):
         line = line.lower() # normalize case
         line = line.partition('#')[0] # strip comments
 
-        line_labels, line = re.match(r'^((?:\s*\w+:)*)(.*)', line).groups()
+        for line in line.split(';'):
+            line_labels, line = re.match(r'^((?:\s*\w+:)*)(.*)', line).groups()
 
-        line_labels = re.findall(r'\w+', line_labels)
-        line = line.strip()
+            line_labels = re.findall(r'\w+', line_labels)
+            line = line.strip()
 
-        line_list.append((lineno, offset, orig_line, line_labels, line))
+            line_list.append((lineno, offset, orig_line, line_labels, line))
 
-        if line: offset += 4
+            if line: offset += 4
 
     # Second pass: resolve labels (each instruction is 4 bytes, easy)
     all_labels = {}
