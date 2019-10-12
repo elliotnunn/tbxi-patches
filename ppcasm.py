@@ -114,6 +114,14 @@ def instruction(line, variables):
             else:
                 args[i:i+1] = ['', ''] # this will eventually fail...
 
+    # Insert optional arguments (as zeroes)
+    for i in range(len(func_pattern)):
+        if func_pattern[i].endswith('_optional'):
+            func_pattern[i] = func_pattern[i][:-9]
+            if len(args) < len(func_pattern):
+                args.insert(i, '0')
+                func_pattern[i] = 'anything' # do not attempt to validate
+
     # Did the user give us the right number of commas?
     if len(args) != len(func_pattern): raise SyntaxError('wrong number of args')
 
@@ -241,17 +249,17 @@ def inst_bcctr(link, bo, bi):
 def inst_bclr(link, bo, bi):
     return _b(19,0,5)|_b(bo,6,10)|_b(bi,11,15)|_b(16,21,30)|_b(link,31)
 
-def inst_cmpw(crD, rA, rB):
-    return _b(31,0,5)|_b(crD,6,8)|_b(rA,11,15)|_b(rB,16,20)
+def inst_cmpw(crD_optional, rA, rB):
+    return _b(31,0,5)|_b(crD_optional,6,8)|_b(rA,11,15)|_b(rB,16,20)
 
-def inst_cmpwi(crD, rA, simm):
-    return _b(11,0,5)|_b(crD,6,8)|_b(rA,11,15)|_b(simm,16,31)
+def inst_cmpwi(crD_optional, rA, simm):
+    return _b(11,0,5)|_b(crD_optional,6,8)|_b(rA,11,15)|_b(simm,16,31)
 
-def inst_cmplw(crD, rA, rB):
-    return _b(31,0,5)|_b(crD,6,8)|_b(rA,11,15)|_b(rB,16,20)|b(32,21,30)
+def inst_cmplw(crD_optional, rA, rB):
+    return _b(31,0,5)|_b(crD_optional,6,8)|_b(rA,11,15)|_b(rB,16,20)|b(32,21,30)
 
-def inst_cmplwi(crD, rA, simm):
-    return _b(10,0,5)|_b(crD,6,8)|_b(rA,11,15)|_b(simm,16,31)
+def inst_cmplwi(crD_optional, rA, simm):
+    return _b(10,0,5)|_b(crD_optional,6,8)|_b(rA,11,15)|_b(simm,16,31)
 
 def inst_crand(crbD, crbA, crbB):
     return _b(19,0,5)|_b(crbD,6,10)|_b(crbA,11,15)|_b(crbB,16,20)|_b(257,21,30)
@@ -484,23 +492,23 @@ def inst_bctr(link):
 def inst_blr(link):
     return inst_bclr(link, 0b10100, 0)
 
-def inst_beq(link, crA, dest):
-    return inst_bc(link, 0b01100, 4*crA+2, dest)
+def inst_beq(link, crA_optional, dest):
+    return inst_bc(link, 0b01100, 4*crA_optional+2, dest)
 
-def inst_bge(link, crA, dest):
-    return inst_bc(link, 0b01100, 4*crA, dest)
+def inst_bge(link, crA_optional, dest):
+    return inst_bc(link, 0b01100, 4*crA_optional, dest)
 
-def inst_bgt(link, crA, dest):
-    return inst_bc(link, 0b00100, 4*crA+1, dest)
+def inst_bgt(link, crA_optional, dest):
+    return inst_bc(link, 0b00100, 4*crA_optional+1, dest)
 
-def inst_ble(link, crA, dest):
-    return inst_bc(link, 0b01100, 4*crA+1, dest)
+def inst_ble(link, crA_optional, dest):
+    return inst_bc(link, 0b01100, 4*crA_optional+1, dest)
 
-def inst_blt(link, crA, dest):
-    return inst_bc(link, 0b00100, 4*crA, dest)
+def inst_blt(link, crA_optional, dest):
+    return inst_bc(link, 0b00100, 4*crA_optional, dest)
 
-def inst_bne(link, crA, dest):
-    return inst_bc(link, 0b00100, 4*crA+2, dest)
+def inst_bne(link, crA_optional, dest):
+    return inst_bc(link, 0b00100, 4*crA_optional+2, dest)
 
 def inst_crclr(crbD):
     return inst_crxor(crbD, crbD, crbD)
