@@ -30,6 +30,7 @@ import argparse
 import datetime
 import struct
 import os
+import re
 import textwrap
 from os import path
 from ast import literal_eval as eval
@@ -570,6 +571,9 @@ def dump_locations(from_path, to_path):
     """Create some useful files: glue.txt
     """
 
+    to_path = path.join(to_path, 'locations')
+    os.makedirs(to_path, exist_ok=True)
+
     with open(path.join(from_path, 'sections.txt')) as f: section_list = eval(f.read())
 
     gluelocs = []
@@ -606,10 +610,43 @@ def dump_locations(from_path, to_path):
 
     gluelocs.sort(key=lambda dct: tuple(dct.values()))
 
-    to_path = path.join(to_path, 'locations')
-    os.makedirs(to_path, exist_ok=True)
     with open(path.join(to_path, 'glue.txt'), 'w') as f:
         f.write(repr(gluelocs) + '\n')
+
+    # MacsBug symbol locations
+    dbgsymlocs = []
+
+    for idx, sec in enumerate(section_list):
+        if sec['sectionKind'] != 'code': continue
+
+        with open(path.join(from_path, sec['filename']), 'rb') as f: code = f.read()
+
+        end_offset = 0
+        for i in range(0, len(code) - 17, 4):
+            guts = struct.unpack_from('>IIIIxB', code, i)
+
+            if guts[0] != 0: continue
+
+            if len(code) < i + 18 + guts[-1]: continue
+            name = code[i + 18:][:guts[-1]]
+
+            if i - guts[3] < end_offset: continue
+            if guts[3] % 4 != 0: continue
+
+            if not re.match(rb'^\w+$', name): continue
+
+            end_offset = i + 18 # whatever
+
+            # now interpret properly
+            code_ofs = i - guts[3]
+            code_len = guts[3]
+
+            dbgsymlocs.append(dict(file=sec['filename'], offset=code_ofs, function=name.decode('ascii')))
+
+    dbgsymlocs.sort(key=lambda dct: tuple(dct.values()))
+
+    with open(path.join(to_path, 'debugsyms.txt'), 'w') as f:
+        f.write(repr(dbgsymlocs) + '\n')
 
 
 def format_mac_date(srcint):
