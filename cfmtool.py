@@ -141,9 +141,6 @@ def dump(from_binary_or_path, to_path):
 
         with open(path.join(to_path, sec['filename']), 'wb') as f: f.write(unpacked)
 
-        if sec['sectionKind'] == 'loader':
-            dump_loader_section(path.join(to_path, sec['filename']), to_path)
-
         if packed is not None:
             with open(path.join(to_path, 'packed-' + sec['filename']), 'wb') as f: f.write(packed)
 
@@ -151,6 +148,10 @@ def dump(from_binary_or_path, to_path):
         del sec['unpackedLength']
         del sec['containerLength']
         del sec['containerOffset']
+
+    for i, sec in enumerate(section_list):
+        if sec['sectionKind'] == 'loader':
+            dump_loader_section(section_list, path.join(to_path, sec['filename']), to_path)
 
     write_txt('sections', repr(section_list))
 
@@ -367,7 +368,7 @@ def unpack_pidata(packed):
     return bytes(unpacked)
 
 
-def dump_loader_section(from_binary_or_path, to_dir):
+def dump_loader_section(section_list, from_binary_or_path, to_dir):
     """For a given loader section, dump: imports.txt, exports.txt (not yet), relocations.txt
     """
 
@@ -416,6 +417,8 @@ def dump_loader_section(from_binary_or_path, to_dir):
             ofs = 56 + 24 * importedLibraryCount + 4 * totalImportedSymbolCount + 12 * idx
             sectionIndex, _, relocCount, firstRelocOffset, = struct.unpack_from('>HHLL', loader, ofs)
 
+            sectionIndex = section_list[sectionIndex]['filename']
+
             data = loader[relocInstrOffset+firstRelocOffset:][:2*relocCount]
             data = [struct.unpack_from('>H', data, i)[0] for i in range(0, len(data), 2)]
 
@@ -423,8 +426,12 @@ def dump_loader_section(from_binary_or_path, to_dir):
 
             relocAddress = 0
             importIndex = 0
-            sectionC = 0
-            sectionD = 1
+
+            if len(section_list) >= 1 and _sec_kind_is_instantiated(section_list[0]['sectionKind']):
+                sectionC = section_list[0]['filename']
+
+            if len(section_list) >= 2 and _sec_kind_is_instantiated(section_list[1]['sectionKind']):
+                sectionD = section_list[1]['filename']
 
             relocations = []
 
@@ -494,11 +501,11 @@ def dump_loader_section(from_binary_or_path, to_dir):
 
                     elif subopcode == 0b0001: # RelocSmSetSectC
                         #print('RelocSmSetSectC index=%d' % (index))
-                        sectionC = index
+                        sectionC = section_list[index]['filename']
 
                     elif subopcode == 0b0010: # RelocSmSetSectD
                         #print('RelocSmSetSectD index=%d' % (index))
-                        sectionD = index
+                        sectionD = section_list[index]['filename']
 
                     elif subopcode == 0b0011: # RelocSmBySection
                         #print('RelocSmBySection index=%d' % (index))
@@ -546,11 +553,11 @@ def dump_loader_section(from_binary_or_path, to_dir):
 
                     elif subopcode == 0b0001: # Same as RelocSmSetSectC
                         #print('~RelocSmSetSectC index=%d' % (index))
-                        sectionC = index
+                        sectionC = section_list[index]['filename']
 
                     elif subopcode == 0b0010: # Same as RelocSmSetSectD
                         #print('~RelocSmSetSectD index=%d' % (index))
-                        sectionD = index
+                        sectionD = section_list[index]['filename']
 
                 else:
                     raise ValueError('bad relocation opcode: 0x%04x' % short)
@@ -598,7 +605,7 @@ def dump_locations(from_path, to_path):
 
         toc_vectors = {}
         for rel in relocs:
-            if 'data' in section_list[rel['section']]['sectionKind'] and rel['to'][0] == 'import':
+            if 'data' in rel['section'] and rel['to'][0] == 'import':
                 toc_vectors[rel['offset']] = imports[rel['to'][1]]
 
         gluelocs = []
