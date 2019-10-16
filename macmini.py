@@ -352,10 +352,10 @@ def patch_rockhopper_ndrv(src, dest=None):
     with tempfile.TemporaryDirectory() as tmp:
         cfmtool.dump(src, tmp)
 
-        glue_file = eval(open(path.join(tmp, 'locations', 'glue.txt')).read())
+        glue_file = eval(open(path.join(tmp, 'dump-highlevel', 'codelocs-xtocglue.txt')).read())
         glue_info = next(d for d in glue_file if d['function'] == 'ExpMgrConfigReadLong')
 
-        code_path = path.join(tmp, glue_info['file'])
+        code_path = path.join(tmp, glue_info['section'])
         code = bytearray(open(code_path, 'rb').read())
         while len(code) % 4: code.append(0) # align just in case
 
