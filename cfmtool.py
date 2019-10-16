@@ -610,11 +610,11 @@ def dump_lowlevel(basepath):
         exports.sort(key=lambda dct: tuple(dct.values()))
         return exports
 
-    write_python(get_mainvectors(), basepath, 'dump-lowlevel', 'mainvectors.txt')
-    write_python(get_exports(), basepath, 'dump-lowlevel', 'exports.txt')
-    write_python(get_relocations(), basepath, 'dump-lowlevel', 'relocations.txt')
+    write_python(get_mainvectors(), basepath, 'ldump', 'mainvectors.txt')
+    write_python(get_exports(), basepath, 'ldump', 'exports.txt')
+    write_python(get_relocations(), basepath, 'ldump', 'relocations.txt')
     write_python([get_imported_library(n) for n in range(importedLibraryCount)],
-        basepath, 'dump-lowlevel', 'imports.txt')
+        basepath, 'ldump', 'imports.txt')
 
 
 def dump_highlevel(basepath):
@@ -624,14 +624,14 @@ def dump_highlevel(basepath):
     section_list = read_python(basepath, 'sections.txt')
 
     # Relocations in lookup-able form
-    relocs = read_python(basepath, 'dump-lowlevel', 'relocations.txt')
+    relocs = read_python(basepath, 'ldump', 'relocations.txt')
     relocs = {(rl['section'], rl['offset']): rl['to'] for rl in relocs}
 
     # The base of the TOC is not guaranteed to be the base of the data section... what is the TOC of our exported funcs?
-    tvectors = [dct for dct in read_python(basepath, 'dump-lowlevel', 'exports.txt') if dct['kind'] == 'tvector']
+    tvectors = [dct for dct in read_python(basepath, 'ldump', 'exports.txt') if dct['kind'] == 'tvector']
 
     # Failing that, the TOC of our init/main/term funcs
-    tvectors.extend(read_python(basepath, 'dump-lowlevel', 'mainvectors.txt').values())
+    tvectors.extend(read_python(basepath, 'ldump', 'mainvectors.txt').values())
 
     tvectors = [(tv['section'], tv['offset']) for tv in tvectors]
     table_of_contents = {}
@@ -663,11 +663,11 @@ def dump_highlevel(basepath):
 
     # Somehow we got the table of contents
     if table_of_contents:
-        write_python(table_of_contents, basepath, 'dump-highlevel', 'table-of-contents.txt')
+        write_python(table_of_contents, basepath, 'hdump', 'table-of-contents.txt')
 
 
     # Exports!
-    exports = read_python(basepath, 'dump-lowlevel', 'exports.txt')
+    exports = read_python(basepath, 'ldump', 'exports.txt')
     codelocs_exported = []
     # read_bin = functools.lru_cache(read_bin)
 
@@ -680,26 +680,26 @@ def dump_highlevel(basepath):
                 codelocs_exported.append(dict(section=reloc_targ_section, offset=code_offset, function=exp['name']))
 
     codelocs_exported.sort(key=lambda dct: tuple(dct.values()))
-    write_python(codelocs_exported, basepath, 'dump-highlevel', 'codelocs-exported.txt')
+    write_python(codelocs_exported, basepath, 'hdump', 'codelocs-exported.txt')
 
 
     # Init, term and main functions
     codelocs_main = []
-    for kind, dct in read_python(basepath, 'dump-lowlevel', 'mainvectors.txt').items():
+    for kind, dct in read_python(basepath, 'ldump', 'mainvectors.txt').items():
         reloc_kind, reloc_targ_section = relocs.get((dct['section'], dct['offset']), (None, None))
         if reloc_kind == 'section' and 'code' in reloc_targ_section:
             secdata = read_bin(basepath, dct['section'])
             code_offset, = struct.unpack_from('>L', secdata, dct['offset'])
             codelocs_main.append(dict(section=reloc_targ_section, offset=code_offset, function=kind))
     codelocs_main.sort(key=lambda dct: tuple(dct.values()))
-    write_python(codelocs_main, basepath, 'dump-highlevel', 'codelocs-main.txt')
+    write_python(codelocs_main, basepath, 'hdump', 'codelocs-main.txt')
 
 
     # Cross-toc glue
     codelocs_xtocglue = []
 
     if table_of_contents: # we might not have one if we export no functions!
-        imports = read_python(basepath, 'dump-lowlevel', 'imports.txt')
+        imports = read_python(basepath, 'ldump', 'imports.txt')
         imports = [sym['name'] for lib in imports for sym in lib['symbols']]
 
         toc_imports = {}
@@ -720,7 +720,7 @@ def dump_highlevel(basepath):
                     codelocs_xtocglue.append(dict(section=sec['filename'], offset=ofs, function=toc_imports[toc_ofs]))
 
     codelocs_xtocglue.sort(key=lambda dct: tuple(dct.values()))
-    write_python(codelocs_xtocglue, basepath, 'dump-highlevel', 'codelocs-xtocglue.txt')
+    write_python(codelocs_xtocglue, basepath, 'hdump', 'codelocs-xtocglue.txt')
 
 
     # MacsBug symbol locations
@@ -754,7 +754,7 @@ def dump_highlevel(basepath):
             codelocs_macsbug.append(dict(section=sec['filename'], offset=code_ofs, function=name.decode('ascii')))
 
     codelocs_macsbug.sort(key=lambda dct: tuple(dct.values()))
-    write_python(codelocs_macsbug, basepath, 'dump-highlevel', 'codelocs-macsbug.txt')
+    write_python(codelocs_macsbug, basepath, 'hdump', 'codelocs-macsbug.txt')
 
 
     # Driver description
@@ -806,7 +806,7 @@ def dump_highlevel(basepath):
                 'driverServices': services,
             }
 
-            write_python(desc, basepath, 'dump-highlevel', 'driver-description.txt')
+            write_python(desc, basepath, 'hdump', 'driver-description.txt')
             break
 
 
@@ -856,7 +856,7 @@ def dump_highlevel(basepath):
                 'usbDriverLoadingOptions': bits,
             }
 
-            write_python(desc, basepath, 'dump-highlevel', 'usb-driver-description.txt')
+            write_python(desc, basepath, 'hdump', 'usb-driver-description.txt')
             break
 
 
@@ -985,6 +985,7 @@ def write_bin(bin, *path_parts):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='''
         Convert between a Code Fragment Manager binary and an easily-edited dump directory.
+        The extra info (low/high-level) in ldump/ and hdump/ is ignored when rebuilding.
     ''')
 
     # parser.add_argument('--gather', action='store_true', help='Binary or directory')
