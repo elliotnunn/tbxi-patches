@@ -380,24 +380,24 @@ def patch_rockhopper_ndrv(src, dest=None):
                 bl      ExpMgrConfigReadLong
 
                 cmpwi   cr0, r3, 0          # If call failed, punt
-                bne     cr0, _return
+                bne     cr0, return
 
                 lwz     r4, 0x38(r1)        # If wrong address, punt
                 cmpwi   cr0, r4, 0
-                bne     cr0, _return
+                bne     cr0, return
 
                 lwz     r5, 0x3c(r1)        # If wrong returned value, punt
                 lwz     r8, 0(r5)
                 lis     r7, 0x5962
                 ori     r7, r7, 0x1002
                 cmpw    cr0, r7, r8
-                bne     cr0, _return
+                bne     cr0, return
 
                 lis     r8, 0x5961          # Save the new returned value
                 ori     r8, r8, 0x1002
                 stw     r8, 0(r5)
 
-            _return:                         # Stack teardown
+            return:                         # Stack teardown
                 lwz     r1, 0(r1)
                 lwz     r0, 8(r1)
                 mtlr    r0
