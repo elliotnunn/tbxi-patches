@@ -276,9 +276,15 @@ def repr(obj):
         accum = []
         for k, v in obj:
             if k == 'defaultAddress':
-                v = ('0x%08x' % v)
-            elif k in '_hackUnexpectedAlign _hackPostAlign' or k.lower().endswith('offset'):
+                v = hex(v, 8)
+            elif k.lower().endswith('align'):
                 v = hex(v)
+            elif k.lower().endswith('offset'):
+                v = hex(v, 5)
+            elif k in ('usbVendorID', 'usbProductID', 'usbDeviceReleaseNumber', 'usbDeviceProtocol'):
+                v = hex(v, 4)
+            elif k in ('usbConfigValue', 'usbInterfaceNum', 'usbInterfaceClass', 'usbInterfaceSubClass', 'usbInterfaceProtocol', 'usbDriverClass', 'usbDriverSubClass'):
+                v = hex(v, 2)
             else:
                 v = repr(v)
             accum.append('%r: %s' % (k, v))
@@ -296,12 +302,12 @@ def repr(obj):
         return builtins.repr(obj)
 
 
-def hex(obj):
+def hex(obj, num_digits=5):
     """Pad to 5 significant digits (up to a megabyte, plenty)
     """
 
     x = builtins.hex(obj)
-    while len(x.partition('x')[2]) < 5:
+    while len(x.partition('x')[2]) < num_digits:
         x = x.replace('x', 'x0')
     return x
 
@@ -781,6 +787,56 @@ def dump_highlevel(basepath):
             }
 
             write_python(desc, basepath, 'dump-highlevel', 'driver-description.txt')
+            break
+
+
+    # USB driver description
+    for exp in exports:
+        if exp['kind'] == 'data' and exp['name'] == 'TheUSBDriverDescription':
+            secdata = read_bin(basepath, exp['section'])
+            ofs = exp['offset']
+
+            desc = list(struct.unpack_from('>4sL HHHH BBBBBx 32sBBL L', secdata, ofs))
+
+            known_bits = {
+                0x1: 'kUSBDoNotMatchGenericDevice',
+                0x2: 'kUSBDoNotMatchInterface',
+                0x4: 'kUSBProtocolMustMatch',
+                0x8: 'kUSBInterfaceMatchOnly',
+            }
+
+            bits = []
+            for i in range(32):
+                if desc[15] & (1 << i):
+                    bits.append(known_bits.get(1 << i, hex(1 << i)))
+            bits = '|'.join(bits) or '0'
+
+            desc = {
+                'usbDriverDescSignature': desc[0].decode('mac_roman'),
+                'usbDriverDescVersion': desc[1],
+                'usbDeviceInfo': {
+                    'usbVendorID': desc[2],
+                    'usbProductID': desc[3],
+                    'usbDeviceReleaseNumber': desc[4],
+                    'usbDeviceProtocol': desc[5],
+                },
+                'usbInterfaceInfo': {
+                    'usbConfigValue': desc[6],
+                    'usbInterfaceNum': desc[7],
+                    'usbInterfaceClass': desc[8],
+                    'usbInterfaceSubClass': desc[9],
+                    'usbInterfaceProtocol': desc[10],
+                },
+                'usbDriverType': {
+                    'nameInfoStr': pstring_or_cstring(desc[11]).decode('mac_roman'),
+                    'usbDriverClass': desc[12],
+                    'usbDriverSubClass': desc[13],
+                    'usbDriverVersion': parse_mac_version(desc[14]),
+                },
+                'usbDriverLoadingOptions': bits,
+            }
+
+            write_python(desc, basepath, 'dump-highlevel', 'usb-driver-description.txt')
             break
 
 
