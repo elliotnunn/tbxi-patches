@@ -627,11 +627,13 @@ def dump_highlevel(basepath):
     relocs = read_python(basepath, 'dump-lowlevel', 'relocations.txt')
     relocs = {(rl['section'], rl['offset']): rl['to'] for rl in relocs}
 
-    # The base of the TOC is not guaranteed to be the base of the data section
+    # The base of the TOC is not guaranteed to be the base of the data section... what is the TOC of our exported funcs?
     tvectors = [dct for dct in read_python(basepath, 'dump-lowlevel', 'exports.txt') if dct['kind'] == 'tvector']
-    tvectors.extend(read_python(basepath, 'dump-lowlevel', 'mainvectors.txt').values())
-    tvectors = [(tv['section'], tv['offset']) for tv in tvectors]
 
+    # Failing that, the TOC of our init/main/term funcs
+    tvectors.extend(read_python(basepath, 'dump-lowlevel', 'mainvectors.txt').values())
+
+    tvectors = [(tv['section'], tv['offset']) for tv in tvectors]
     table_of_contents = {}
     for section, offset in tvectors: # (section, offset) tuple
         reloc_kind, toc_section = relocs.get((section, offset + 4), (None, None))
@@ -640,10 +642,28 @@ def dump_highlevel(basepath):
             toc_offset, = struct.unpack_from('>L', secdata, offset + 4)
 
             table_of_contents = dict(section=toc_section, offset=toc_offset)
-            write_python(table_of_contents, basepath, 'dump-highlevel', 'table-of-contents.txt')
             break
 
-            print(repr(table_of_contents))
+
+    # Sometimes we need to fall back on an educated guess based on our apparent tvectors
+    if not table_of_contents:
+        guesses = []
+        for (reloc_sec, reloc_offset), (reloc_kind, reloc_targ_section) in relocs.items():
+            if 'data' in reloc_sec and reloc_kind == 'section' and 'code' in reloc_targ_section:
+                toc_reloc_kind, toc_reloc_targ_section = relocs.get((reloc_sec, reloc_offset+4), (None, None))
+                if toc_reloc_kind == 'section' and 'data' in toc_reloc_targ_section:
+                    secdata = read_bin(basepath, reloc_sec)
+                    toc_offset, = struct.unpack_from('>L', secdata, reloc_offset + 4)
+                    guesses.append(dict(section=toc_reloc_targ_section, offset=toc_offset))
+
+        for x in guesses:
+            if guesses.count(x) >= len(guesses)//2:
+                table_of_contents = dict(x)
+                break
+
+    # Somehow we got the table of contents
+    if table_of_contents:
+        write_python(table_of_contents, basepath, 'dump-highlevel', 'table-of-contents.txt')
 
 
     # Exports!
