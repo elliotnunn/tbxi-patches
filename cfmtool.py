@@ -978,8 +978,15 @@ def write_txt(txt, *path_parts):
 def write_bin(bin, *path_parts):
     path_parts = path.join(*path_parts)
     os.makedirs(path.dirname(path_parts), exist_ok=True)
-    with open(path_parts, 'wb') as f:
-        f.write(bin)
+
+    # Write only if changed (slightly hacky)
+    try:
+        if path.getsize(path_parts) != len(bin): raise Exception
+        with open(path_parts, 'rb') as f:
+            if f.read() != bin: raise Exception
+    except:
+        with open(path_parts, 'wb') as f:
+            f.write(bin)
 
 
 if __name__ == '__main__':
