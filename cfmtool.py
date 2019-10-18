@@ -472,12 +472,12 @@ def dump_lowlevel(basepath):
                     if subopcode == 0b0000: # RelocBySectC
                         #print('RelocBySectC runLength=%d' % (runLength))
                         for i in range(runLength):
-                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
 
                     elif subopcode == 0b0001: # RelocBySectD
                         #print('RelocBySectD runLength=%d' % (runLength))
                         for i in range(runLength):
-                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
+                            relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
 
                     elif subopcode == 0b0010: # RelocTVector12
                         #print('RelocTVector12 runLength=%d' % (runLength))
