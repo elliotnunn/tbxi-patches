@@ -454,7 +454,7 @@ def dump_lowlevel(basepath):
                 return x
 
             for short in iter(nextblock, None):
-                #print('%04X  codeA=%d dataA=%d rSymI=%d rAddr=%08X' % (short, sectionC, sectionD, importIndex, relocAddress), end='  ')
+                #print('%04X  codeA=%r dataA=%r rSymI=%d rAddr=%08X' % (short, sectionC, sectionD, importIndex, relocAddress), end='  ')
 
                 if short >> 14 == 0b00: # RelocBySectDWithSkip
                     skipCount = (short >> 6) & 0xFF
@@ -503,6 +503,9 @@ def dump_lowlevel(basepath):
                         for i in range(runLength):
                             relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('import', importIndex))); relocAddress += 4; importIndex += 1
 
+                    else:
+                        raise ValueError('bad Relocate Value Group subopcode: %s' % bin(subopcode))
+
                 elif short >> 13 == 0b011: # The Relocate By Index Group
                     subopcode = (short >> 9) & 0xF
                     index = short & 0x1FF
@@ -523,6 +526,9 @@ def dump_lowlevel(basepath):
                         #print('RelocSmBySection index=%d' % (index))
                         relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', index))); relocAddress += 4
 
+                    else:
+                        raise ValueError('bad Relocate By Index Group subopcode: %s' % bin(subopcode))
+
                 elif short >> 12 == 0b1000: # RelocIncrPosition
                     offset = (short & 0x0FFF) + 1
                     #print('RelocIncrPosition offset=%d' % (offset))
@@ -534,7 +540,7 @@ def dump_lowlevel(basepath):
                     repeatCount = (short & 0xFF) + 1
                     #print('RelocSmRepeat blockCount=%d repeatCount=%d' % (blockCount, repeatCount))
 
-                    data[0:0] = done[:blockCount] * repeatCount
+                    data[0:0] = done[-blockCount-1:-1] * repeatCount
 
                 elif short >> 10 == 0b101000: # RelocSetPosition
                     offset = ((short & 0x3FF) << 16) + nextblock()
@@ -553,7 +559,7 @@ def dump_lowlevel(basepath):
                     repeatCount = ((short & 0x3F) << 16) + nextblock()
                     #print('RelocLgRepeat blockCount=%d repeatCount=%d' % (blockCount, repeatCount))
 
-                    data[0:0] = done[:blockCount] * repeatCount
+                    data[0:0] = done[-blockCount-1:-1] * repeatCount
 
                 elif short >> 10 == 0b101101: # RelocLgSetOrBySection
                     subopcode = (short >> 6) & 0xF
@@ -570,6 +576,9 @@ def dump_lowlevel(basepath):
                     elif subopcode == 0b0010: # Same as RelocSmSetSectD
                         #print('~RelocSmSetSectD index=%d' % (index))
                         sectionD = section_list[index]['filename']
+
+                    else:
+                        raise ValueError('bad RelocLgSetOrBySection subopcode: %s' % bin(subopcode))
 
                 else:
                     raise ValueError('bad relocation opcode: 0x%04x' % short)
