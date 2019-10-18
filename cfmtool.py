@@ -425,6 +425,8 @@ def dump_lowlevel(basepath):
         )
 
     def get_relocations():
+        relocations = []
+
         for idx in range(relocSectionCount):
             ofs = 56 + 24 * importedLibraryCount + 4 * totalImportedSymbolCount + 12 * idx
             sectionIndex, _, relocCount, firstRelocOffset, = struct.unpack_from('>HHLL', loader, ofs)
@@ -444,8 +446,6 @@ def dump_lowlevel(basepath):
 
             if len(section_list) >= 2 and _sec_kind_is_instantiated(section_list[1]['sectionKind']):
                 sectionD = section_list[1]['filename']
-
-            relocations = []
 
             def nextblock():
                 if not data: return None
