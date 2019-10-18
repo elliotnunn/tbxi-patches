@@ -484,6 +484,7 @@ def dump_lowlevel(basepath):
                         for i in range(runLength):
                             relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
                             relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+                            if 'code' in sectionC and 'data' in sectionD: relocations[-2]['likelytv'] = 1
                             relocAddress += 4
 
                     elif subopcode == 0b0011: # RelocTVector8
@@ -491,6 +492,7 @@ def dump_lowlevel(basepath):
                         for i in range(runLength):
                             relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionC))); relocAddress += 4
                             relocations.append(dict(section=sectionIndex, offset=relocAddress, to=('section', sectionD))); relocAddress += 4
+                            if 'code' in sectionC and 'data' in sectionD: relocations[-2]['likelytv'] = 1
 
                     elif subopcode == 0b0100: # RelocVTable8
                         #print('RelocVTable8 runLength=%d' % (runLength))
@@ -634,6 +636,7 @@ def dump_highlevel(basepath):
 
     # Relocations in lookup-able form
     relocs = read_python(basepath, 'ldump', 'relocations.txt')
+    likelytv = set((rl['section'], rl['offset']) for rl in relocs if rl.get('likelytv', False))
     relocs = {(rl['section'], rl['offset']): rl['to'] for rl in relocs}
 
     # The base of the TOC is not guaranteed to be the base of the data section... what is the TOC of our exported funcs?
@@ -654,11 +657,16 @@ def dump_highlevel(basepath):
             break
 
 
-    # Sometimes we need to fall back on an educated guess based on our apparent tvectors
+    # When we export even a single TVector, the TOC can be easily found as
+    # above. But some fragments, e.g. native sifters (nifts) and some USB
+    # code, only export some sort of dispatch table in which TVector pointers
+    # are difficult to identify. So we scan the entire relocation table to
+    # find things that  look like TVectors, then try to identify a consensus
+    # among the real-looking TVectors.
     if not table_of_contents:
         guesses = []
         for (reloc_sec, reloc_offset), (reloc_kind, reloc_targ_section) in relocs.items():
-            if 'data' in reloc_sec and reloc_kind == 'section' and 'code' in reloc_targ_section:
+            if 'data' in reloc_sec and reloc_kind == 'section' and 'code' in reloc_targ_section and (reloc_sec, reloc_offset) in likelytv:
                 toc_reloc_kind, toc_reloc_targ_section = relocs.get((reloc_sec, reloc_offset+4), (None, None))
                 if toc_reloc_kind == 'section' and 'data' in toc_reloc_targ_section:
                     secdata = read_bin(basepath, reloc_sec)
@@ -726,7 +734,12 @@ def dump_highlevel(basepath):
                     if a != b and b != 0xFF: break
                 else:
                     toc_ofs, = struct.unpack_from('>h', code, ofs+2)
-                    codelocs_xtocglue.append(dict(section=sec['filename'], offset=ofs, function=toc_imports[toc_ofs]))
+                    try:
+                        codelocs_xtocglue.append(dict(section=sec['filename'], offset=ofs, function=toc_imports[toc_ofs]))
+                    except KeyError:
+                        # The glue points inwards. This is quite rare, so just ignore it
+                        pass
+
 
     codelocs_xtocglue.sort(key=lambda dct: tuple(dct.values()))
     write_python(codelocs_xtocglue, basepath, 'hdump', 'codelocs-xtocglue.txt')
