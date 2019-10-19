@@ -926,7 +926,7 @@ def parse_mac_version(num):
     elif stage == 0x20:
         stage = 'd'
     else:
-        stage = '?'
+        return '%08x' % num
 
     unreleased = '%d' % unreleased
 
