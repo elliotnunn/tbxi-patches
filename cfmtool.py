@@ -835,50 +835,63 @@ def dump_highlevel(basepath):
     # USB driver description
     for exp in exports:
         if exp['kind'] == 'data' and exp['name'] == 'TheUSBDriverDescription':
+
+            usbd_count = 1 # This is not documented anywhere, pity.
+            for cnt_exp in exports:
+                if cnt_exp['kind'] == 'data' and cnt_exp['name'] == 'TheUSBDriverDescriptionCount':
+                    cnt_secdata = read_bin(basepath, cnt_exp['section'])
+                    usbd_count, = struct.unpack_from('>L', cnt_secdata, cnt_exp['offset'])
+
             secdata = read_bin(basepath, exp['section'])
             ofs = exp['offset']
 
-            desc = list(struct.unpack_from('>4sL HHHH BBBBBx 32sBBL L', secdata, ofs))
+            descriptors = []
+            for i in range(usbd_count):
+                desc = list(struct.unpack_from('>4sL HHHH BBBBBx 32sBBL L', secdata, ofs))
 
-            known_bits = {
-                0x1: 'kUSBDoNotMatchGenericDevice',
-                0x2: 'kUSBDoNotMatchInterface',
-                0x4: 'kUSBProtocolMustMatch',
-                0x8: 'kUSBInterfaceMatchOnly',
-            }
+                known_bits = {
+                    0x1: 'kUSBDoNotMatchGenericDevice',
+                    0x2: 'kUSBDoNotMatchInterface',
+                    0x4: 'kUSBProtocolMustMatch',
+                    0x8: 'kUSBInterfaceMatchOnly',
+                }
 
-            bits = []
-            for i in range(32):
-                if desc[15] & (1 << i):
-                    bits.append(known_bits.get(1 << i, hex(1 << i)))
-            bits = '|'.join(bits) or '0'
+                bits = []
+                for i in range(32):
+                    if desc[15] & (1 << i):
+                        bits.append(known_bits.get(1 << i, hex(1 << i)))
+                bits = '|'.join(bits) or '0'
 
-            desc = {
-                'usbDriverDescSignature': desc[0].decode('mac_roman'),
-                'usbDriverDescVersion': desc[1],
-                'usbDeviceInfo': {
-                    'usbVendorID': desc[2],
-                    'usbProductID': desc[3],
-                    'usbDeviceReleaseNumber': desc[4],
-                    'usbDeviceProtocol': desc[5],
-                },
-                'usbInterfaceInfo': {
-                    'usbConfigValue': desc[6],
-                    'usbInterfaceNum': desc[7],
-                    'usbInterfaceClass': desc[8],
-                    'usbInterfaceSubClass': desc[9],
-                    'usbInterfaceProtocol': desc[10],
-                },
-                'usbDriverType': {
-                    'nameInfoStr': pstring_or_cstring(desc[11]).decode('mac_roman'),
-                    'usbDriverClass': desc[12],
-                    'usbDriverSubClass': desc[13],
-                    'usbDriverVersion': parse_mac_version(desc[14]),
-                },
-                'usbDriverLoadingOptions': bits,
-            }
+                desc = {
+                    'usbDriverDescSignature': desc[0].decode('mac_roman'),
+                    'usbDriverDescVersion': desc[1],
+                    'usbDeviceInfo': {
+                        'usbVendorID': desc[2],
+                        'usbProductID': desc[3],
+                        'usbDeviceReleaseNumber': desc[4],
+                        'usbDeviceProtocol': desc[5],
+                    },
+                    'usbInterfaceInfo': {
+                        'usbConfigValue': desc[6],
+                        'usbInterfaceNum': desc[7],
+                        'usbInterfaceClass': desc[8],
+                        'usbInterfaceSubClass': desc[9],
+                        'usbInterfaceProtocol': desc[10],
+                    },
+                    'usbDriverType': {
+                        'nameInfoStr': pstring_or_cstring(desc[11]).decode('mac_roman'),
+                        'usbDriverClass': desc[12],
+                        'usbDriverSubClass': desc[13],
+                        'usbDriverVersion': parse_mac_version(desc[14]),
+                    },
+                    'usbDriverLoadingOptions': bits,
+                }
 
-            write_python(desc, basepath, 'hdump', 'usb-driver-description.txt')
+                descriptors.append(desc)
+
+                ofs += 0x40
+
+            write_python(descriptors, basepath, 'hdump', 'usb-driver-description.txt')
             break
 
 
