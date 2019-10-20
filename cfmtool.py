@@ -641,6 +641,16 @@ def dump_highlevel(basepath):
 
 
     # Some helper functions so we can follow these relocations
+    def is_null(tpl): # takes (section_name, offset) tuple
+        section, ofs = tpl
+        if 'data' not in section: return False
+        for i in (-2, 0, 2):
+            if (section, ofs+i) in relocs: return False
+        secdata = read_bin(basepath, section)
+        if secdata[ofs:ofs+4] != b'\0\0\0\0': return False
+
+        return True
+
     def follow_pointer_to_section(tpl): # takes (section_name, offset) tuple
         src_section, src_ofs = tpl
 
@@ -656,6 +666,8 @@ def dump_highlevel(basepath):
 
     def follow_tvector(tpl): # takes (section_name, offset) tuple
         src_section, src_ofs = tpl
+
+        if 'data' not in src_section: raise ValueError('not a tvector pointer')
 
         # Offset is read directly from the packed section
         secdata = read_bin(basepath, src_section)
@@ -885,6 +897,63 @@ def dump_highlevel(basepath):
                     codelocs_disptable.append(dict(section=targ_sec, offset=targ_ofs, function='ATAPlugin' + name))
 
                 break
+
+
+    # Power Management dispatch table
+    # The structure is variable-length and not versioned (ouch), so we do sanity checks
+    if desc and 'powr' in [serv['serviceCategory'] for serv in desc['driverServices']]:
+        for exp in exports:
+            if exp['kind'] == 'data' and exp['name'] == 'ThePluginDispatchTable':
+                dispnames = {
+                    0x00: 'PrimaryInit', 0x01: 'SecondaryInit', 0x02: 'Finalize', 0x03: 'CallPMU',
+                    0x04: 'PowerOff', 0x05: 'Restart', 0x06: 'EnterIdle2', 0x07: 'HandleIdle2',
+                    0x08: 'ExitIdle2',
+                    0x09: '__Selector09', 0x0a: '__Selector0A', 0x0b: '__Selector0B', # probably getting processor temp, not sure
+                    0x0c: 'Doze', 0x0d: 'WakeFromDoze', 0x0e: 'Sleep',
+                    0x0f: 'Wake', 0x10: 'SuspendResumeHW', 0x11: 'GetStartupTimer',
+                    0x12: 'SetStartupTimer', 0x13: 'GetWakeTimer', 0x14: 'SetWakeTimer',
+                    0x15: 'GetFirstPowerSource', 0x16: 'GetNextPowerSource',
+                    0x17: 'GetProcessorSpeed', 0x18: 'SetProcessorSpeed',
+                    0x19: 'GetMaxProcessorSpeed', 0x1a: 'SetMaxProcessorSpeed',
+                    0x1b: 'GetPrimInfoEntry', 0x1c: 'RegisterInterruptCallback',
+                    0x1d: 'IsClamshellClosed', 0x1e: 'GetSleepActionBits', 0x1f: 'GetWakeInfo',
+                    0x20: 'ConfigForHardware', 0x21: 'DriverReplacement', 0x22: 'ActivateClock',
+                    0x23: 'DeactivateClock', 0x24: 'DeactivateCurrentClock',
+                    0x25: 'GetCurrentClockID', 0x26: 'EnteredADBHandler',
+                    0x27: 'EnablePowerUpEvents', 0x28: 'ArePowerUpEventsEnabled',
+                    0x29: 'EnableWakeUpEvents', 0x2a: 'AreWakeUpEventsEnabled',
+                    0x2b: 'SetWakeOnNetActOptions', 0x2c: 'GetWakeOnNetActOptions',
+                    0x2d: 'GetIntModemInfo', 0x2e: 'SetIntModemState', 0x2f: 'PowerOnModem',
+                    0x30: 'PowerOffModem', 0x31: 'SystemReady', 0x32: 'UpdatePowerSources',
+                    0x33: 'EnableThermalMgt', 0x34: 'ThermalEvent', 0x35: 'GetThermalLevel',
+                    0x36: 'NumFans', 0x37: 'FanControl', 0x38: 'NumThermostats',
+                    0x39: 'ThermostatControl', 0x3a: 'ReadThermostat', 0x3b: 'GetRangeForLevel',
+                    0x3c: 'GetMinProcessorSpeed', 0x3d: 'EnqueueWakeHandler',
+                    0x3e: 'DequeueWakeHandler', 0x3f: 'OverrideClamshellClosedBehavior',
+                    0x40: 'DoClamshellClosedChores', 0x41: 'ResetModemLow', 0x42: 'ResetModemHigh',
+                    0x43: 'CheckForForcedReducedSpeed',
+                }
+
+                for i, name in dispnames.items():
+                    ofs = exp['offset'] + 16 + 4*i
+
+                    if is_null((exp['section'], ofs)): continue # missing entry in the table
+
+                    try:
+                        targ_sec, targ_ofs = follow_tvector(follow_pointer_to_section((exp['section'], ofs)))
+                    except:
+                        break # the table probably stops here
+
+                    codelocs_disptable.append(dict(section=targ_sec, offset=targ_ofs, function='PMPlugin' + name))
+
+                break
+
+
+    # Uncomment to find plugin dispatch tables that still need reversing
+    # for exp in exports:
+    #     if exp['name'] == 'ThePluginDispatchTable' and not codelocs_disptable:
+    #         print('Note: ThePluginDispatchTable not parsed')
+    #         break
 
 
     codelocs_disptable.sort(key=lambda dct: tuple(dct.values()))
