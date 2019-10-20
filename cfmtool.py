@@ -639,6 +639,38 @@ def dump_highlevel(basepath):
     likelytv = set((rl['section'], rl['offset']) for rl in relocs if rl.get('likelytv', False))
     relocs = {(rl['section'], rl['offset']): rl['to'] for rl in relocs}
 
+
+    # Some helper functions so we can follow these relocations
+    def follow_pointer_to_section(tpl): # takes (section_name, offset) tuple
+        src_section, src_ofs = tpl
+
+        # Offset is read directly from the packed section
+        secdata = read_bin(basepath, src_section)
+        targ_ofs, = struct.unpack_from('>L', secdata, src_ofs)
+
+        # Base is fetched from the relocation table
+        targ_kind, targ_section = relocs[(src_section, src_ofs)]
+        if targ_kind != 'section': raise ValueError('not to a section')
+
+        return (targ_section, targ_ofs)
+
+    def follow_tvector(tpl): # takes (section_name, offset) tuple
+        src_section, src_ofs = tpl
+
+        # Offset is read directly from the packed section
+        secdata = read_bin(basepath, src_section)
+        targ_ofs, = struct.unpack_from('>L', secdata, src_ofs)
+
+        # Base is fetched from the relocation table
+        targ_kind, targ_section = relocs[(src_section, src_ofs)]
+        if targ_kind != 'section' or 'code' not in targ_section: raise ValueError('not a real tvector')
+
+        toc_kind, toc_section = relocs[(src_section, src_ofs + 4)]
+        if toc_kind != 'section' or 'data' not in toc_section: raise ValueError('not a real tvector')
+
+        return (targ_section, targ_ofs)
+
+
     # The base of the TOC is not guaranteed to be the base of the data section... what is the TOC of our exported funcs?
     tvectors = [dct for dct in read_python(basepath, 'ldump', 'exports.txt') if dct['kind'] == 'tvector']
 
@@ -780,6 +812,7 @@ def dump_highlevel(basepath):
 
 
     # Driver description
+    desc = None
     for exp in exports:
         if exp['kind'] == 'data' and exp['name'] == 'TheDriverDescription':
             secdata = read_bin(basepath, exp['section'])
@@ -830,6 +863,32 @@ def dump_highlevel(basepath):
 
             write_python(desc, basepath, 'hdump', 'driver-description.txt')
             break
+
+
+    # Specialised dispatch tables
+    codelocs_disptable = []
+
+
+    # ATA Interface Manager dispatch table
+    if desc and 'ata-' in [serv['serviceCategory'] for serv in desc['driverServices']]:
+        for exp in exports:
+            if exp['kind'] == 'data' and exp['name'] == 'ThePluginDispatchTable':
+                dispnames = ['Init', 'Close', 'Action', 'HandleBusEvent', 'Poll',
+                    'EjectDevice', 'DeviceLight', 'DeviceLock', 'Suspend', 'Resume']
+
+                for i, name in enumerate(dispnames):
+                    try:
+                        targ_sec, targ_ofs = follow_tvector(follow_pointer_to_section((exp['section'], exp['offset'] + 16 + 4*i)))
+                    except:
+                        continue
+
+                    codelocs_disptable.append(dict(section=targ_sec, offset=targ_ofs, function='ATAPlugin' + name))
+
+                break
+
+
+    codelocs_disptable.sort(key=lambda dct: tuple(dct.values()))
+    write_python(codelocs_disptable, basepath, 'hdump', 'codelocs-disptable.txt')
 
 
     # USB driver description
